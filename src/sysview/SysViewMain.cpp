@@ -389,7 +389,10 @@ void* threadNetworkPump(void* arg)
                                 callEvent["type"].set<std::string>(ceType);
                                 std::string ceMode = "dmr";
                                 callEvent["mode"].set<std::string>(ceMode);
-                                callEvent["slot"].set<uint8_t>(slotNo);
+                                // Pass a uint8_t lvalue (mirrors upstream) — set<uint8_t>()
+                                // on a uint32_t temporary hits an undefined rvalue overload.
+                                uint8_t ceSlot = (uint8_t)slotNo;
+                                callEvent["slot"].set<uint8_t>(ceSlot);
                                 callEvent["srcId"].set<uint32_t>(srcId);
                                 std::string ceSrcStr = resolveRID(srcId);
                                 callEvent["srcStr"].set<std::string>(ceSrcStr);
@@ -432,7 +435,10 @@ void* threadNetworkPump(void* arg)
                                 callEvent["type"].set<std::string>(csType);
                                 std::string csMode = "dmr";
                                 callEvent["mode"].set<std::string>(csMode);
-                                callEvent["slot"].set<uint8_t>(slotNo);
+                                // Pass a uint8_t lvalue (mirrors upstream) — set<uint8_t>()
+                                // on a uint32_t temporary hits an undefined rvalue overload.
+                                uint8_t csSlot = (uint8_t)slotNo;
+                                callEvent["slot"].set<uint8_t>(csSlot);
                                 callEvent["srcId"].set<uint32_t>(srcId);
                                 std::string csSrcStr = resolveRID(srcId);
                                 callEvent["srcStr"].set<std::string>(csSrcStr);
