@@ -1,0 +1,61 @@
+# Headless SysView image for the myCTRS FNE live-activity monitor peer.
+#
+# Builds the `sysview` target from this fork (which carries the net_event
+# call_start/call_end enrichment — see CENTRUNK-FORK.md) and runs it in
+# FOREGROUND (`-f`) so it stays PID 1 in a container (SysView otherwise
+# daemonizes via fork()/setsid(), which would exit the container).
+#
+# NOTE: authored without a local build (see CENTRUNK-FORK.md "Status"). The
+# FinalCut runtime-library handling in the final stage is the most likely thing
+# to need adjustment on first real build — verify whether FinalCut links static
+# (nothing to copy) or shared (copy its .so). Build:
+#   docker build -f Dockerfile.sysview -t harbor.tatrs.org/myctrs/sysview:<tag> .
+
+# ---- build stage ----------------------------------------------------------
+FROM debian:bookworm-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        libasio-dev \
+        libncurses-dev \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . /src
+
+# ENABLE_TUI_SUPPORT is required: the `sysview` target only builds with it (see
+# CENTRUNK-FORK.md). FinalCut + (if needed) ASIO are fetched by CMake at
+# configure time, so the build stage needs network access.
+RUN cmake -S . -B build \
+        -DENABLE_TUI_SUPPORT=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --target sysview -j"$(nproc)"
+
+# ---- runtime stage --------------------------------------------------------
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libncursesw6 \
+        libssl3 \
+        libstdc++6 \
+        ca-certificates \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/build/sysview /usr/local/bin/sysview
+# If FinalCut is built as a shared library rather than statically linked, also:
+#   COPY --from=build /src/build/_deps/finalcut-build/*.so* /usr/local/lib/
+#   RUN ldconfig
+# (Verify the exact path on first build; omit if the link is static.)
+
+# Config (FNE master address/port, monitor peerId, WebSocket port) is mounted at
+# /config/fne-sysview.yml from a ConfigMap + Secret in Kubernetes.
+ENV SYSVIEW_CONFIG=/config/fne-sysview.yml
+
+# tini as PID 1 for correct signal handling; sysview -f stays in foreground.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/bin/sh", "-c", "exec sysview -f -c \"$SYSVIEW_CONFIG\""]
