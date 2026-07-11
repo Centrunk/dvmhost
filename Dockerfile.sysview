@@ -47,6 +47,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/build/sysview /usr/local/bin/sysview
+
+# Run as a non-root user (the k8s manifest sets runAsNonRoot: true). SysView
+# only reads the mounted /config and writes logs to /tmp (both world-accessible),
+# binds the WebSocket on a high port (8443), and needs no capabilities — the
+# overlay reach is provided by the netbird sidecar in the shared pod netns.
+RUN useradd --system --no-create-home --uid 10001 sysview
+USER 10001
 # If FinalCut is built as a shared library rather than statically linked, also:
 #   COPY --from=build /src/build/_deps/finalcut-build/*.so* /usr/local/lib/
 #   RUN ldconfig
