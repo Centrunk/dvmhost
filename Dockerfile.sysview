@@ -63,6 +63,7 @@ USER 10001
 # /config/fne-sysview.yml from a ConfigMap + Secret in Kubernetes.
 ENV SYSVIEW_CONFIG=/config/fne-sysview.yml
 
-# tini as PID 1 for correct signal handling; sysview -f stays in foreground.
+# tini as PID 1 for correct signal handling. -ws = websocket mode (no FinalCut
+# TUI, which needs a TTY); -f = foreground so sysview stays PID 1.
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/bin/sh", "-c", "exec sysview -f -c \"$SYSVIEW_CONFIG\""]
+CMD ["/bin/sh", "-c", "exec sysview -ws -f -c \"$SYSVIEW_CONFIG\""]
