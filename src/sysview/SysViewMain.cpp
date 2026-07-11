@@ -380,6 +380,27 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "DMR, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                         srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
+
+                            // ===== BEGIN CENTRUNK FORK: emit structured call_end for the FNE live-activity view (NOT upstream) =====
+                            // See CENTRUNK-FORK.md. Base: DVMProject/dvmhost @ 435ff45b.
+                            if (g_netDataEvent != nullptr) {
+                                json::object callEvent = json::object();
+                                std::string ceType = "call_end";
+                                callEvent["type"].set<std::string>(ceType);
+                                std::string ceMode = "dmr";
+                                callEvent["mode"].set<std::string>(ceMode);
+                                callEvent["slot"].set<uint8_t>(slotNo);
+                                callEvent["srcId"].set<uint32_t>(srcId);
+                                std::string ceSrcStr = resolveRID(srcId);
+                                callEvent["srcStr"].set<std::string>(ceSrcStr);
+                                callEvent["dstId"].set<uint32_t>(dstId);
+                                std::string ceDstStr = resolveTGID(dstId);
+                                callEvent["dstStr"].set<std::string>(ceDstStr);
+                                uint32_t ceDuration = (uint32_t)(duration / 1000U);
+                                callEvent["duration"].set<uint32_t>(ceDuration);
+                                g_netDataEvent(callEvent);
+                            }
+                            // ===== END CENTRUNK FORK =====
                         }
                     }
 
@@ -400,8 +421,27 @@ void* threadNetworkPump(void* arg)
                             status.slotNo = slotNo;
                             g_dmrStatus[dstId] = status; // this *could* be an issue if a dstId appears on both slots somehow...
 
-                            LogInfoEx(LOG_NET, "DMR, Call Start, srcId = %u (%s), dstId = %u (%s)", 
+                            LogInfoEx(LOG_NET, "DMR, Call Start, srcId = %u (%s), dstId = %u (%s)",
                                 srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str());
+
+                            // ===== BEGIN CENTRUNK FORK: emit structured call_start for the FNE live-activity view (NOT upstream) =====
+                            // See CENTRUNK-FORK.md. Base: DVMProject/dvmhost @ 435ff45b.
+                            if (g_netDataEvent != nullptr) {
+                                json::object callEvent = json::object();
+                                std::string csType = "call_start";
+                                callEvent["type"].set<std::string>(csType);
+                                std::string csMode = "dmr";
+                                callEvent["mode"].set<std::string>(csMode);
+                                callEvent["slot"].set<uint8_t>(slotNo);
+                                callEvent["srcId"].set<uint32_t>(srcId);
+                                std::string csSrcStr = resolveRID(srcId);
+                                callEvent["srcStr"].set<std::string>(csSrcStr);
+                                callEvent["dstId"].set<uint32_t>(dstId);
+                                std::string csDstStr = resolveTGID(dstId);
+                                callEvent["dstStr"].set<std::string>(csDstStr);
+                                g_netDataEvent(callEvent);
+                            }
+                            // ===== END CENTRUNK FORK =====
                         }
                     }
 
@@ -522,6 +562,32 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "P25, Call End, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X, duration = %u",
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), sysId, netId, duration / 1000);
+
+                                // ===== BEGIN CENTRUNK FORK: emit structured call_end for the FNE live-activity view (NOT upstream) =====
+                                // Rationale: upstream only LogInfoEx()'s the voice call lifecycle; the Centrunk FNE monitor
+                                // bridge needs a structured WS event so the admin live-activity screen can render call rows
+                                // with duration. Mirrors the existing g_netDataEvent emit idiom used for TSBK/CSBK below.
+                                // "duration" matches the value in the Call End log line above (unit follows upstream; the
+                                // Centrunk spike calibrates it). See CENTRUNK-FORK.md. Base: DVMProject/dvmhost @ 435ff45b.
+                                if (g_netDataEvent != nullptr) {
+                                    json::object callEvent = json::object();
+                                    std::string ceType = "call_end";
+                                    callEvent["type"].set<std::string>(ceType);
+                                    std::string ceMode = "p25";
+                                    callEvent["mode"].set<std::string>(ceMode);
+                                    callEvent["srcId"].set<uint32_t>(srcId);
+                                    std::string ceSrcStr = resolveRID(srcId);
+                                    callEvent["srcStr"].set<std::string>(ceSrcStr);
+                                    callEvent["dstId"].set<uint32_t>(dstId);
+                                    std::string ceDstStr = resolveTGID(dstId);
+                                    callEvent["dstStr"].set<std::string>(ceDstStr);
+                                    callEvent["sysId"].set<uint32_t>(sysId);
+                                    callEvent["netId"].set<uint32_t>(netId);
+                                    uint32_t ceDuration = (uint32_t)(duration / 1000U);
+                                    callEvent["duration"].set<uint32_t>(ceDuration);
+                                    g_netDataEvent(callEvent);
+                                }
+                                // ===== END CENTRUNK FORK =====
                             }
                         }
 
@@ -541,8 +607,28 @@ void* threadNetworkPump(void* arg)
                                 status.dstId = dstId;
                                 g_p25Status[dstId] = status;
 
-                                LogInfoEx(LOG_NET, "P25, Call Start, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X", 
+                                LogInfoEx(LOG_NET, "P25, Call Start, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X",
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), sysId, netId);
+
+                                // ===== BEGIN CENTRUNK FORK: emit structured call_start for the FNE live-activity view (NOT upstream) =====
+                                // See the call_end block below and CENTRUNK-FORK.md. Base: DVMProject/dvmhost @ 435ff45b.
+                                if (g_netDataEvent != nullptr) {
+                                    json::object callEvent = json::object();
+                                    std::string csType = "call_start";
+                                    callEvent["type"].set<std::string>(csType);
+                                    std::string csMode = "p25";
+                                    callEvent["mode"].set<std::string>(csMode);
+                                    callEvent["srcId"].set<uint32_t>(srcId);
+                                    std::string csSrcStr = resolveRID(srcId);
+                                    callEvent["srcStr"].set<std::string>(csSrcStr);
+                                    callEvent["dstId"].set<uint32_t>(dstId);
+                                    std::string csDstStr = resolveTGID(dstId);
+                                    callEvent["dstStr"].set<std::string>(csDstStr);
+                                    callEvent["sysId"].set<uint32_t>(sysId);
+                                    callEvent["netId"].set<uint32_t>(netId);
+                                    g_netDataEvent(callEvent);
+                                }
+                                // ===== END CENTRUNK FORK =====
                             }
                         }
                     }
