@@ -46,5 +46,41 @@ TEST_CASE("TSBK registration responses", "[p25][tsbk][registration]") {
         }
     }
 
+    SECTION("U_REG_RSP_Abbreviated_Roaming_Known_Bytes_Figure_6_2_21_1") {
+        IOSP_U_REG iosp;
+        iosp.setResponse(ResponseCode::DENY);
+        iosp.setSUIDSysId(0x2A5U);
+        iosp.setDstId(0x0F4240U);                                                   // Source ID (SUID Unit ID)
+        iosp.setSrcId(0x7A1200U);                                                   // Source Address (WUID)
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x22U, 0xA5U, 0x0FU, 0x42U, 0x40U, 0x7AU, 0x12U, 0x00U };
+        CHECK((raw[0U] & 0x3FU) == TSBKO::IOSP_U_REG);
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_REG_RSP_Abbreviated_Home_Unchanged") {
+        IOSP_U_REG iosp;
+        iosp.setResponse(ResponseCode::ACCEPT);
+        iosp.setDstId(1001U);
+        iosp.setSrcId(1001U);
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x02U, 0xA5U, 0x00U, 0x03U, 0xE9U, 0x00U, 0x03U, 0xE9U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
     TSBK::setSiteData(previousSiteData);
 }
