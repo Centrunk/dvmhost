@@ -332,6 +332,43 @@ public:
      */
     static void p25RegisterUnit(p25::Control& control, uint32_t srcId);
     /**
+     * @brief Sets P25 site data on the controller and the TSBK/LC encoders.
+     * @param control P25 controller.
+     * @param siteData Site data to apply.
+     */
+    static void p25SetSiteData(p25::Control& control, const p25::SiteData& siteData);
+    /**
+     * @brief Configures P25 roaming registration and enables control signaling.
+     * @param control P25 controller.
+     * @param allow Flag indicating whether roaming registration is allowed.
+     * @param sysIds Permitted home System IDs (empty permits any in the WACN).
+     * @param wuidStart First roaming WUID (inclusive).
+     * @param wuidEnd Last roaming WUID (inclusive).
+     * @returns bool True if the configuration was applied; otherwise, false.
+     */
+    static bool p25ConfigureRoaming(p25::Control& control, bool allow, const std::vector<uint32_t>& sysIds,
+        uint32_t wuidStart, uint32_t wuidEnd);
+    /**
+     * @brief Gets the P25 roaming WUID lookup.
+     * @param control P25 controller.
+     * @returns p25::lookups::P25WuidLookup* WUID lookup.
+     */
+    static p25::lookups::P25WuidLookup* p25WuidLookup(p25::Control& control);
+    /**
+     * @brief Determines whether a unit is registered.
+     * @param control P25 controller.
+     * @param srcId Unit or working unit ID.
+     * @returns bool True if registered; otherwise, false.
+     */
+    static bool p25IsUnitReg(const p25::Control& control, uint32_t srcId);
+    /**
+     * @brief De-registers a unit through the affiliation table.
+     * @param control P25 controller.
+     * @param srcId Unit or working unit ID.
+     * @param automatic Flag indicating timer-driven de-registration.
+     */
+    static void p25UnitDereg(p25::Control& control, uint32_t srcId, bool automatic);
+    /**
      * @brief Injects an independently encoded raw TSBK into P25 control signaling.
      * @param control P25 control instance.
      * @param raw Raw 12-byte TSBK including CRC.

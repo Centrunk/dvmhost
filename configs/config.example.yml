@@ -331,6 +331,15 @@ protocols:
         wuidValidity: 0
         # Flag indicating the host requires LLA verification before allowing unit registration.
         requireLLAForReg: false
+        # Flag indicating whether SUs homed to other systems within this WACN may register here.
+        #   Roaming SUs are assigned a WUID from the pool below. They are not LLA-authenticated,
+        #   even when requireLLAForReg is enabled; admission relies on WACN and roamingSysIds.
+        allowRoaming: false
+        # Home System IDs permitted to roam here (hex strings). Empty permits any System ID in this WACN.
+        roamingSysIds: []
+        # Inclusive WUID pool assigned to roaming SUs (decimal). Must not overlap any home unit ID.
+        roamingWuidStart: 0
+        roamingWuidEnd: 0
         # Flag indicating whether verbose dumping of P25 data packets is enabled.
         dumpDataPacket: false
         # Flag indicating whether or not this host will repeat P25 data traffic.

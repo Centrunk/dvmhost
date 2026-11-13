@@ -76,6 +76,8 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_voiceOnControl(false),
     m_controlOnly(false),
     m_ackTSBKRequests(true),
+    m_allowRoaming(false),
+    m_roamingSysIds(),
     m_allowRFGrantTGSteering(false),
     m_disableNetworkHDU(false),
     m_hideRemoteGrantLog(false),
@@ -94,6 +96,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ridLookup(ridLookup),
     m_tidLookup(tidLookup),
     m_affiliations(nullptr),
+    m_wuidLookup(nullptr),
     m_controlChData(),
     m_idenEntry(),
     m_activeTG(),
@@ -157,6 +160,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     assert(rssiMapper != nullptr);
 
     m_affiliations = new lookups::P25AffiliationLookup(this, chLookup, verbose);
+    m_wuidLookup = new lookups::P25WuidLookup();
 
     // bryanb: this is a hacky check to see if the modem is a ModemV24 or not...
     modem::ModemV24* modemV24 = dynamic_cast<modem::ModemV24*>(modem);
@@ -191,6 +195,7 @@ Control::~Control()
 {
     if (m_affiliations != nullptr) {
         delete m_affiliations;
+        delete m_wuidLookup;
     }
 
     if (m_voice != nullptr) {
@@ -416,6 +421,16 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
     }
     m_affiliations->setDisableUnitRegTimeout(disableUnitRegTimeout);
 
+    bool allowRoaming = p25Protocol["allowRoaming"].as<bool>(false);
+    std::vector<uint32_t> roamingSysIds;
+    yaml::Node roamingSysIdList = p25Protocol["roamingSysIds"];
+    for (size_t i = 0; i < roamingSysIdList.size(); i++) {
+        roamingSysIds.push_back((uint32_t)::strtoul(roamingSysIdList[i].as<std::string>("0").c_str(), NULL, 16));
+    }
+    uint32_t roamingWuidStart = p25Protocol["roamingWuidStart"].as<uint32_t>(0U);
+    uint32_t roamingWuidEnd = p25Protocol["roamingWuidEnd"].as<uint32_t>(0U);
+    configureRoaming(allowRoaming, roamingSysIds, roamingWuidStart, roamingWuidEnd);
+
     lc::LC::setSiteData(m_siteData);
     lc::TDULC::setSiteData(m_siteData);
 
@@ -462,15 +477,7 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
     });
 
     // set the unit deregistration callback
-    m_affiliations->setUnitDeregCallback([=](uint32_t srcId, bool automatic) {
-        if (m_network != nullptr)
-            m_network->announceUnitDeregistration(srcId);
-
-        // fire off a U_REG_CMD to get the SU to re-affiliate
-        if (m_enableControl && automatic) {
-            m_control->writeRF_TSDU_U_Reg_Cmd(srcId);
-        }
-    });
+    m_affiliations->setUnitDeregCallback([=](uint32_t srcId, bool automatic) { processUnitDereg(srcId, automatic); });
 
     // set the In-Call Control function callback
     if (m_network != nullptr) {
@@ -535,6 +542,18 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
         LogInfo("    Verify Affiliation: %s", m_control->m_verifyAff ? "yes" : "no");
         LogInfo("    Verify Registration: %s", m_control->m_verifyReg ? "yes" : "no");
         LogInfo("    Require LLA for Registration: %s", m_control->m_requireLLAForReg ? "yes" : "no");
+        LogInfo("    Allow Roaming: %s", m_allowRoaming ? "yes" : "no");
+        if (m_allowRoaming) {
+            LogInfo("    Roaming WUID Pool: %u - %u", m_wuidLookup->poolStart(), m_wuidLookup->poolEnd());
+            if (m_roamingSysIds.empty()) {
+                LogInfo("    Roaming System IDs: any in WACN $%05X", m_siteData.netId());
+            }
+            else {
+                for (uint32_t sysId : m_roamingSysIds) {
+                    LogInfo("    Roaming System ID: $%03X", sysId);
+                }
+            }
+        }
 
         LogInfo("    SNDCP Support: %s", m_sndcpSupport ? "yes" : "no");
 
@@ -2527,5 +2546,68 @@ void Control::processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* rspKi, uint8
         
         m_control->writeRF_TSDU_Auth_Dmd(srcId);
         m_control->m_llaDeferredAuthList.erase(std::remove(m_control->m_llaDeferredAuthList.begin(), m_control->m_llaDeferredAuthList.end(), srcId), m_control->m_llaDeferredAuthList.end());
+    }
+}
+
+/* Configures roaming unit registration and the roaming WUID pool. */
+
+bool Control::configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, uint32_t wuidStart, uint32_t wuidEnd)
+{
+    m_allowRoaming = false;
+    m_roamingSysIds.clear();
+    m_wuidLookup->clear();
+
+    if (!allow) {
+        return true;
+    }
+
+    if (!lookups::P25WuidLookup::validRange(wuidStart, wuidEnd)) {
+        LogError(LOG_P25, "Roaming disabled, invalid roaming WUID pool, roamingWuidStart = %u, roamingWuidEnd = %u", wuidStart, wuidEnd);
+        return false;
+    }
+
+    for (uint32_t sysId : sysIds) {
+        if (sysId == 0U || sysId > 0xFFFU) {
+            LogError(LOG_P25, "Roaming disabled, invalid roaming System ID $%X", sysId);
+            return false;
+        }
+
+        if (sysId == m_siteData.sysId()) {
+            LogError(LOG_P25, "Roaming disabled, roaming System ID $%03X is this site's System ID", sysId);
+            return false;
+        }
+    }
+
+    // a home Unit ID inside the pool would collide with roaming WUIDs (TIA-102.AABD-B 6.2)
+    if (m_ridLookup != nullptr && m_ridLookup->getACL()) {
+        for (const auto& entry : m_ridLookup->table()) {
+            if (entry.first >= wuidStart && entry.first <= wuidEnd) {
+                LogWarning(LOG_P25, "Roaming WUID pool overlaps RID ACL entry %u; home Unit IDs must not be assigned from the roaming pool", entry.first);
+            }
+        }
+    }
+
+    m_wuidLookup->setPool(wuidStart, wuidEnd);
+    m_roamingSysIds = sysIds;
+    m_allowRoaming = true;
+    return true;
+}
+
+/* Helper to process a unit de-registration from the affiliation table. */
+
+void Control::processUnitDereg(uint32_t srcId, bool automatic)
+{
+    // roaming SU WUIDs are local only and return to the pool (TIA-102.AABD-B 6.6.1)
+    const bool roaming = m_wuidLookup->isPoolWuid(srcId);
+    if (roaming) {
+        m_wuidLookup->release(srcId);
+    }
+
+    if (m_network != nullptr && !roaming)
+        m_network->announceUnitDeregistration(srcId);
+
+    // fire off a U_REG_CMD to get the SU to re-affiliate
+    if (m_enableControl && automatic) {
+        m_control->writeRF_TSDU_U_Reg_Cmd(srcId);
     }
 }

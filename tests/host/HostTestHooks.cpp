@@ -21,6 +21,8 @@
 #include "common/nxdn/channel/SACCH.h"
 #include "common/nxdn/lc/RTCH.h"
 #include "common/edac/Trellis.h"
+#include "common/p25/lc/LC.h"
+#include "common/p25/lc/TSBK.h"
 #include "common/p25/lc/tsbk/TSBKFactory.h"
 #include "common/p25/P25Utils.h"
 #include "host/p25/packet/ControlSignaling.h"
@@ -516,6 +518,47 @@ void HostTestHooks::p25ConfigureU2U(p25::Control& control, bool availabilityChec
 void HostTestHooks::p25RegisterUnit(p25::Control& control, uint32_t srcId)
 {
     control.m_affiliations->unitReg(srcId);
+}
+
+/* Sets P25 site data on the controller and the TSBK/LC encoders. */
+
+void HostTestHooks::p25SetSiteData(p25::Control& control, const p25::SiteData& siteData)
+{
+    control.m_siteData = siteData;
+    p25::lc::LC::setSiteData(siteData);
+    p25::lc::TSBK::setSiteData(siteData);
+}
+
+/* Configures P25 roaming registration and enables control signaling. */
+
+bool HostTestHooks::p25ConfigureRoaming(p25::Control& control, bool allow, const std::vector<uint32_t>& sysIds,
+    uint32_t wuidStart, uint32_t wuidEnd)
+{
+    control.m_enableControl = true;
+    return control.configureRoaming(allow, sysIds, wuidStart, wuidEnd);
+}
+
+/* Gets the P25 roaming WUID lookup. */
+
+p25::lookups::P25WuidLookup* HostTestHooks::p25WuidLookup(p25::Control& control)
+{
+    return control.m_wuidLookup;
+}
+
+/* Determines whether a unit is registered. */
+
+bool HostTestHooks::p25IsUnitReg(const p25::Control& control, uint32_t srcId)
+{
+    return control.m_affiliations->isUnitReg(srcId);
+}
+
+/* De-registers a unit through the affiliation table. */
+
+void HostTestHooks::p25UnitDereg(p25::Control& control, uint32_t srcId, bool automatic)
+{
+    // the production callback is installed by setOptions(), which the harness does not call
+    control.m_affiliations->setUnitDeregCallback([&control](uint32_t id, bool autoDereg) { control.processUnitDereg(id, autoDereg); });
+    control.m_affiliations->unitDereg(srcId, automatic);
 }
 
 /* Injects an independently encoded raw TSBK into P25 control signaling. */

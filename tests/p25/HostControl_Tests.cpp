@@ -20,7 +20,9 @@
 #include "common/p25/data/LowSpeedData.h"
 #include "common/p25/lc/LC.h"
 #include "common/p25/lc/tdulc/TDULCFactory.h"
+#include "common/p25/lc/TSBK.h"
 #include "common/p25/lc/tsbk/IOSP_EXT_FNCT.h"
+#include "host/p25/lookups/P25WuidLookup.h"
 #include "host/modem/Modem.h"
 #include "modem/port/IModemPort.h"
 #include "host/HostTestHooks.h"
@@ -2054,4 +2056,43 @@ TEST_CASE("P25 grant authority follows configuration and FNE availability",
     P25HostHarness local(true, true);
     local.network()->activateForTest();
     REQUIRE(local.m_control->isGrantAuthoritative());
+}
+
+TEST_CASE("P25 roaming configuration rejects invalid settings", "[p25][host][roaming][config]")
+{
+    P25HostHarness harness;
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    HostTestHooks::p25SetSiteData(*harness.m_control, p25::SiteData(0xBB800U, 0x001U, 1U, 1U, 1U, 1U, 1U, 0x00U, 0));
+
+    CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 0U, 0U));
+    CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+    CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 200U, 100U));
+    CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, { 0x001U }, 9000000U, 9000010U));
+    CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, { 0x1000U }, 9000000U, 9000010U));
+    CHECK(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, { 0x002U }, 9000000U, 9000010U));
+    CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+    CHECK(HostTestHooks::p25ConfigureRoaming(*harness.m_control, false, {}, 0U, 0U));
+    CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming WUID is released on de-registration", "[p25][host][roaming][wuid]")
+{
+    P25HostHarness harness;
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    HostTestHooks::p25SetSiteData(*harness.m_control, p25::SiteData(0xBB800U, 0x001U, 1U, 1U, 1U, 1U, 1U, 0x00U, 0));
+    REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000000U, 9000010U));
+
+    p25::lookups::P25WuidLookup* lookup = HostTestHooks::p25WuidLookup(*harness.m_control);
+    p25::lookups::P25WuidLookup::SUID suid = { 0xBB800U, 0x002U, 1001U };
+    const uint32_t wuid = lookup->allocate(suid);
+    REQUIRE(wuid == 9000000U);
+    HostTestHooks::p25RegisterUnit(*harness.m_control, wuid);
+
+    HostTestHooks::p25UnitDereg(*harness.m_control, wuid, true);
+    CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+    CHECK(lookup->count() == 0U);
+
+    p25::lc::TSBK::setSiteData(previous);
 }

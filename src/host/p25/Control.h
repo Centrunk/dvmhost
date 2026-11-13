@@ -44,6 +44,7 @@
 #include "p25/packet/Voice.h"
 #include "p25/packet/ControlSignaling.h"
 #include "p25/lookups/P25AffiliationLookup.h"
+#include "p25/lookups/P25WuidLookup.h"
 #include "modem/Modem.h"
 
 #include <cstdio>
@@ -326,6 +327,8 @@ namespace p25
         bool m_voiceOnControl;
         bool m_controlOnly;
         bool m_ackTSBKRequests;
+        bool m_allowRoaming;
+        std::vector<uint32_t> m_roamingSysIds;
         bool m_allowRFGrantTGSteering;
         bool m_disableNetworkHDU;
         bool m_hideRemoteGrantLog;
@@ -346,6 +349,7 @@ namespace p25
         ::lookups::RadioIdLookup* m_ridLookup;
         ::lookups::TalkgroupRulesLookup* m_tidLookup;
         lookups::P25AffiliationLookup* m_affiliations;
+        lookups::P25WuidLookup* m_wuidLookup;
         ::lookups::VoiceChData m_controlChData;
 
         ::lookups::IdenTable m_idenEntry;
@@ -564,6 +568,25 @@ namespace p25
          * @param keyLength Length of key in bytes.
          */
         void processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* ki, uint8_t keyLength);
+
+        /**
+         * @brief Configures roaming unit registration and the roaming WUID pool.
+         *  Any validation error is logged and leaves roaming disabled; there is no permissive fallback.
+         * @param allow Flag indicating whether SUs homed to other System IDs in this WACN may register.
+         * @param sysIds Home System IDs permitted to roam here; empty permits any System ID in this WACN.
+         * @param wuidStart First WUID of the roaming pool (inclusive).
+         * @param wuidEnd Last WUID of the roaming pool (inclusive).
+         * @returns bool True if the configuration was applied (including disabling roaming); false on validation error.
+         */
+        bool configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, uint32_t wuidStart, uint32_t wuidEnd);
+
+        /**
+         * @brief Helper to process a unit de-registration from the affiliation table.
+         *  Roaming WUIDs are returned to the pool without network announcement.
+         * @param srcId Unit or working unit ID that was de-registered.
+         * @param automatic Flag indicating timer-driven de-registration.
+         */
+        void processUnitDereg(uint32_t srcId, bool automatic);
     };
 } // namespace p25
 
