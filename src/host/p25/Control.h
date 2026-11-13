@@ -581,8 +581,9 @@ namespace p25
         bool configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, uint32_t wuidStart, uint32_t wuidEnd);
         /**
          * @brief Parses the roaming home System ID list (roamingSysIds).
-         *  A scalar, or any entry that is not a clean hexadecimal value of at most $FFF, is rejected rather
-         *  than read as an empty (permit any System ID) list.
+         *  An absent key, an empty value, or `[]` is an empty list. Any other scalar, or any entry that is not
+         *  a clean hexadecimal value of at most $FFF, is rejected rather than read as an empty (permit any
+         *  System ID) list.
          * @param node roamingSysIds configuration node.
          * @param[out] sysIds Parsed System IDs; empty when the key is absent.
          * @returns bool True if the key is absent or a list of valid System IDs; otherwise, false.

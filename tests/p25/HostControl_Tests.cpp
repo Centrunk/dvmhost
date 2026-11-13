@@ -2701,16 +2701,17 @@ TEST_CASE("P25 roaming de-registration releases the WUID without RID ACL process
         CHECK(harness.network()->announcedIds().size() == announcedBefore);
     }
 
-    SECTION("WUID_Addressed_Request") {
+    SECTION("Home_SUID_With_Pool_Unit_ID_Ignored") {
+        // a Home SUID naming a pool WUID is not the roaming SU's SUID; it must not release that SU's WUID
         buildUnitDeregRequest(0xBB800U, 0x001U, wuid, raw);
         HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
         const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
 
-        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK) != nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK) == nullptr);
         CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP) == nullptr);
         CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) == nullptr);
-        CHECK(lookup->count() == 0U);
-        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+        CHECK(lookup->count() == 1U);
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
         CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
         CHECK(harness.network()->tsduWriteCount() == tsduBefore);
         CHECK(harness.network()->announcedIds().size() == announcedBefore);
@@ -2889,12 +2890,30 @@ TEST_CASE("P25 roaming System ID list parsing is strict", "[p25][host][roaming][
     CHECK(parse("allowRoaming: true\n", sysIds));
     CHECK(sysIds.empty());
 
+    // the parser has no flow sequences: `[]` (the shipped default) and an empty value arrive as scalars
+    sysIds = { 0x002U };
+    CHECK(parse("roamingSysIds: []\n", sysIds));
+    CHECK(sysIds.empty());
+    CHECK(parse("roamingSysIds: [ ]\n", sysIds));
+    CHECK(sysIds.empty());
+    CHECK(parse("roamingSysIds:\nallowRoaming: true\n", sysIds));
+    CHECK(sysIds.empty());
+
+    // the shipped example layout
+    {
+        yaml::Node root;
+        REQUIRE(yaml::Parse(root, std::string("protocols:\n    p25:\n        allowRoaming: false\n        roamingSysIds: []\n        roamingWuidStart: 0\n")));
+        CHECK(HostTestHooks::p25ParseRoamingSysIds(root["protocols"]["p25"]["roamingSysIds"], sysIds));
+        CHECK(sysIds.empty());
+    }
+
     CHECK(parse("roamingSysIds:\n  - 2A5\n  - \"0x3B\"\n  - 100\n", sysIds));
     CHECK(sysIds == std::vector<uint32_t>({ 0x2A5U, 0x03BU, 0x100U }));
 
     // a scalar must not read as an empty (permit-all) list
     CHECK_FALSE(parse("roamingSysIds: 2A5\n", sysIds));
     CHECK_FALSE(parse("roamingSysIds: \"2A5\"\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds: [2A5]\n", sysIds));
 
     // every entry must be a clean 12-bit hexadecimal value
     CHECK_FALSE(parse("roamingSysIds:\n  - 2G5\n", sysIds));

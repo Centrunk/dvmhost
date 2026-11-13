@@ -428,7 +428,11 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
     bool allowRoaming = p25Protocol["allowRoaming"].as<bool>(false);
     std::vector<uint32_t> roamingSysIds;
     if (!parseRoamingSysIds(p25Protocol["roamingSysIds"], roamingSysIds)) {
-        LogError(LOG_P25, "Roaming disabled, roamingSysIds must be a list of hexadecimal System IDs");
+        // the list only matters when roaming is allowed
+        if (allowRoaming) {
+            LogError(LOG_P25, "Roaming disabled, roamingSysIds must be a list of hexadecimal System IDs");
+        }
+
         allowRoaming = false;
         roamingSysIds.clear();
     }
@@ -2643,7 +2647,15 @@ bool Control::parseRoamingSysIds(yaml::Node& node, std::vector<uint32_t>& sysIds
         return true;
     }
 
-    // a scalar would otherwise read as an empty list, which permits every System ID
+    // this YAML parser has no flow sequences; an empty value and the empty flow sequence `[]` (the shipped
+    // default) arrive as scalars and mean an empty list
+    if (node.isScalar()) {
+        std::string value = node.as<std::string>("");
+        value.erase(std::remove_if(value.begin(), value.end(), [](char c) { return ::isspace(static_cast<unsigned char>(c)) != 0; }), value.end());
+        return value.empty() || value == "[]";
+    }
+
+    // any other scalar would otherwise read as an empty list, which permits every System ID
     if (!node.isSequence()) {
         return false;
     }

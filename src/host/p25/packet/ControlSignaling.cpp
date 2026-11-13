@@ -913,12 +913,17 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                     break;
                 }
 
-                // an SU that addresses de-registration by its roaming WUID; a Home Unit ID inside the pool cannot be registered
-                const bool roaming = m_p25->m_wuidLookup->isPoolWuid(srcId);
-                if (!roaming) {
-                    // validate the source RID
-                    VALID_SRCID(tsbk->toString(true), TSBKO::ISP_U_DEREG_REQ, srcId);
+                // a Home SUID whose Unit ID lies in the roaming pool can never be registered (it is refused), and a
+                // roaming SU de-registers with its own SUID; such a request must neither release another SU's WUID
+                // nor reach the RID ACL, auto-inhibit or the network
+                if (m_p25->m_wuidLookup->isPoolWuid(srcId)) {
+                    LogWarning(LOG_RF, P25_TSDU_STR ", %s, home unit ID inside roaming WUID pool ignored, srcId = %u",
+                        tsbk->toString(true).c_str(), srcId);
+                    break;
                 }
+
+                // validate the source RID
+                VALID_SRCID(tsbk->toString(true), TSBKO::ISP_U_DEREG_REQ, srcId);
 
                 if (m_verbose) {
                     LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, srcId = %u, sysId = $%03X, netId = $%05X",
@@ -930,7 +935,7 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                 }
 
                 writeRF_TSDU_U_Dereg_Ack(srcId);
-                if (m_requireLLAForReg && !roaming)
+                if (m_requireLLAForReg)
                     m_p25->clearLLA_AM1_Parameters(srcId);
             }
             break;

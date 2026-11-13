@@ -25,8 +25,9 @@ a locally significant Working Unit ID (WUID):
 | `roamingWuidEnd` | `0` | Last WUID of the roaming pool (decimal, inclusive). |
 
 The pool must satisfy `0 < roamingWuidStart <= roamingWuidEnd` and lie below the reserved
-special WUIDs. `roamingSysIds` must be a YAML list (a single scalar such as `roamingSysIds: 2A5`
-is rejected rather than read as "any System ID"), and every entry must be a clean hexadecimal
+special WUIDs. `roamingSysIds` must be a YAML list; an absent key, an empty value, or `[]` means an empty
+list (a single scalar such as `roamingSysIds: 2A5` is rejected rather than read as "any System
+ID", and the error is logged only when `allowRoaming` is enabled), and every entry must be a clean hexadecimal
 12-bit value (an optional `0x` prefix is accepted; signs, whitespace, and trailing characters
 are not) other than `$000` and the site System ID.
 Any error is logged and roaming stays disabled. A warning is logged if RID ACL entries fall
@@ -80,7 +81,8 @@ Roaming SUs are served locally only until roaming identity translation is implem
   belongs to a registered roaming SU releases that SU's WUID; it is acknowledged with the SU's own
   WACN ID and System ID and is not subject to the RID ACL or automatic inhibit. ACK_RSP_FNE to a
   roaming or foreign U_REG_REQ likewise names the requesting SUID and does not refresh any
-  registration timer.
+  registration timer. A U_DE_REG_REQ carrying the site's WACN ID and System ID with a Unit ID inside
+  the roaming pool is not a roaming SU's SUID; it is logged and ignored and never releases a WUID.
 
 WUIDs are released on de-registration and WUID validity expiry (`wuidValidity`). The pool is held
 in memory; a restart clears it and roaming SUs re-register. When unit registration timeouts are

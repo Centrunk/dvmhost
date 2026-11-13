@@ -335,10 +335,15 @@ protocols:
         #   Roaming SUs are assigned a WUID from the pool below. They are not LLA-authenticated,
         #   even when requireLLAForReg is enabled; admission relies on WACN and roamingSysIds.
         allowRoaming: false
-        # Home System IDs permitted to roam here (hex strings). Empty permits any System ID in this WACN.
+        # Home System IDs permitted to roam here (list of hex strings, e.g. "2A5"; $000 and this site's
+        #   System ID are invalid). Empty ([]) permits any System ID in this WACN. Only used when
+        #   allowRoaming is enabled; an invalid list disables roaming.
         roamingSysIds: []
-        # Inclusive WUID pool assigned to roaming SUs (decimal). Must not overlap any home unit ID.
+        # First WUID of the inclusive pool assigned to roaming SUs (decimal, 1 - 16777211). Must not
+        #   overlap any home unit ID; requires roamingWuidEnd. Roaming is disabled while the pool is invalid.
         roamingWuidStart: 0
+        # Last WUID of the inclusive pool assigned to roaming SUs (decimal, roamingWuidStart - 16777211;
+        #   higher WUIDs are reserved). The pool size limits the number of simultaneously registered roaming SUs.
         roamingWuidEnd: 0
         # Flag indicating whether verbose dumping of P25 data packets is enabled.
         dumpDataPacket: false
