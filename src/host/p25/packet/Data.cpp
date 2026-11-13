@@ -1007,8 +1007,11 @@ void Data::writeNetwork(const uint8_t currentBlock, const uint8_t* data, uint32_
     if (m_p25->m_network == nullptr)
         return;
 
-    // roaming SU WUIDs are local only until roaming identity translation exists
+    // roaming SU WUIDs are local only until roaming identity translation exists; the LLID is the source of an
+    // unextended PDU and the destination of an extended-address PDU, whose source is the source LLID
     if (m_p25->m_wuidLookup->isPoolWuid(m_rfAssembler->dataHeader.getLLId()))
+        return;
+    if (m_rfAssembler->getExtendedAddress() && m_p25->m_wuidLookup->isPoolWuid(m_rfAssembler->dataHeader.getSrcLLId()))
         return;
 
     if (m_p25->m_rfTimeoutTimer.isRunning() && m_p25->m_rfTimeoutTimer.hasExpired())

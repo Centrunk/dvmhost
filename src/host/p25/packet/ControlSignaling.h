@@ -536,10 +536,19 @@ namespace p25
              * @param tsbk Inbound TSBK.
              * @param srcId Source address (WUID) of the TSBK.
              * @param dstId Destination address of the TSBK.
-             * @param[out] handled Set true when the gate fully processed the TSBK.
-             * @returns bool True if the TSBK may continue to normal processing; otherwise, false.
+             * @returns bool True if the TSBK may continue to normal processing; false if the gate fully processed it.
              */
-            bool processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId, bool& handled);
+            bool processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId);
+            /**
+             * @brief Applies the roaming SU service policy to an inbound TSBK addressed to a pool WUID.
+             *  Unit-addressed requests are denied (DENY_SYS_UNSUPPORTED_SVC) and responses are consumed
+             *  without forwarding, so no pool WUID reaches the network as a target.
+             * @param tsbk Inbound TSBK.
+             * @param srcId Source address of the TSBK.
+             * @param dstId Target address (pool WUID) of the TSBK.
+             * @returns bool True if the TSBK may continue to normal processing; false if the gate fully processed it.
+             */
+            bool processRoamingTarget(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId);
 
             /**
              * @brief Helper to write a LLA demand.

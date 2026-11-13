@@ -32,7 +32,6 @@ using namespace p25::lc::tsbk;
 using namespace p25::data;
 using namespace p25::packet;
 
-#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <random>
@@ -236,18 +235,18 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
 
         // roaming SUs are served locally until roaming identity translation exists; U_REG_REQ and
         // U_DE_REG_REQ carry the SUID rather than the WUID (TIA-102.AABC-D 2.3.28) and are classified below
-        if (tsbk->getLCO() != TSBKO::IOSP_U_REG && tsbk->getLCO() != TSBKO::ISP_U_DEREG_REQ &&
-            m_p25->m_wuidLookup->isPoolWuid(srcId)) {
-            bool handled = false;
-            if (!processRoamingUnit(tsbk.get(), srcId, dstId, handled)) {
-                if (!m_p25->m_ccRunning) {
-                    m_p25->writeRF_Nulls();
-                }
-
-                m_inbound = false;
-                m_p25->m_rfState = prevRfState;
-                return handled;
+        // services addressed to a roaming SU would carry its pool WUID to the network as the target
+        const bool roamingSrc = tsbk->getLCO() != TSBKO::IOSP_U_REG && tsbk->getLCO() != TSBKO::ISP_U_DEREG_REQ &&
+            m_p25->m_wuidLookup->isPoolWuid(srcId);
+        if ((roamingSrc && !processRoamingUnit(tsbk.get(), srcId, dstId)) ||
+            (m_p25->m_wuidLookup->isPoolWuid(dstId) && !processRoamingTarget(tsbk.get(), srcId, dstId))) {
+            if (!m_p25->m_ccRunning) {
+                m_p25->writeRF_Nulls();
             }
+
+            m_inbound = false;
+            m_p25->m_rfState = prevRfState;
+            return true;
         }
 
         // handle standard P25 reference opcodes
@@ -1724,10 +1723,9 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Cmd(uint32_t dstId)
 
 /* Applies the roaming SU service policy to an inbound TSBK from a pool WUID. */
 
-bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId, bool& handled)
+bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId)
 {
     assert(tsbk != nullptr);
-    handled = false;
 
     const uint8_t lco = tsbk->getLCO();
 
@@ -1736,7 +1734,6 @@ bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32
     if (!m_p25->m_wuidLookup->findByWuid(srcId, suid) || !m_p25->m_affiliations->isUnitReg(srcId)) {
         LogWarning(LOG_RF, P25_TSDU_STR ", %s, unassigned roaming WUID, srcId = %u", tsbk->toString(true).c_str(), srcId);
         writeRF_TSDU_U_Reg_Cmd(srcId);
-        handled = true;
         return false;
     }
 
@@ -1747,12 +1744,11 @@ bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32
         return true;
 
     case TSBKO::ISP_EMERG_ALRM_REQ:
-        LogWarning(LOG_RF, P25_TSDU_STR ", %s, roaming unit emergency alarm, not forwarded (requires roaming translation), netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u, siteId = $%02X",
-            tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId, srcId, m_p25->m_siteData.siteId());
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s, roaming unit emergency alarm, not forwarded (requires roaming translation), netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u, dstId = %u, siteId = $%02X",
+            tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId, srcId, dstId, m_p25->m_siteData.siteId());
         ::ActivityLogEx(LOG_P25, true, "emergency alarm request from roaming unit %u ($%05X.$%03X), wuid = %u, site $%02X, not forwarded",
             suid.unitId, suid.netId, suid.sysId, srcId, m_p25->m_siteData.siteId());
         writeRF_TSDU_ACK_FNE(srcId, TSBKO::ISP_EMERG_ALRM_REQ, false, true);
-        handled = true;
         return false;
 
     case TSBKO::IOSP_ACK_RSP:
@@ -1763,15 +1759,46 @@ bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32
         if (m_verbose) {
             LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming unit response ignored, srcId = %u", tsbk->toString(true).c_str(), srcId);
         }
-        handled = true;
         return false;
 
     default:
         LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, roaming unit service not supported (requires roaming translation), netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u, dstId = %u",
             tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId, srcId, dstId);
         writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_SYS_UNSUPPORTED_SVC, lco, false, false, true);
-        handled = true;
         return false;
+    }
+}
+
+/* Applies the roaming SU service policy to an inbound TSBK addressed to a pool WUID. */
+
+bool ControlSignaling::processRoamingTarget(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId)
+{
+    assert(tsbk != nullptr);
+
+    const uint8_t lco = tsbk->getLCO();
+    switch (lco) {
+    // unit-addressed requests; the target has no network identity until roaming identity translation exists
+    case TSBKO::IOSP_UU_VCH:
+    case TSBKO::IOSP_UU_ANS:
+    case TSBKO::IOSP_CALL_ALRT:
+    case TSBKO::IOSP_MSG_UPDT:
+    case TSBKO::IOSP_STS_UPDT:
+    case TSBKO::IOSP_RAD_MON:
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, target is a roaming unit, service not supported (requires roaming translation), srcId = %u, dstId = %u",
+            tsbk->toString(true).c_str(), srcId, dstId);
+        writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_SYS_UNSUPPORTED_SVC, lco, false, false, true);
+        return false;
+
+    // responses cannot be denied; they are consumed locally rather than forwarded
+    case TSBKO::IOSP_ACK_RSP:
+    case TSBKO::ISP_STS_Q_RSP:
+    case TSBKO::IOSP_EXT_FNCT:
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s, response addressed to a roaming unit not forwarded (requires roaming translation), srcId = %u, dstId = %u",
+            tsbk->toString(true).c_str(), srcId, dstId);
+        return false;
+
+    default:
+        return true;
     }
 }
 

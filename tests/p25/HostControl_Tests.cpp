@@ -17,6 +17,7 @@
 #include "common/network/Network.h"
 #include "common/edac/CRC.h"
 #include "common/p25/P25Defines.h"
+#include "common/p25/data/DataHeader.h"
 #include "common/p25/data/LowSpeedData.h"
 #include "common/p25/lc/LC.h"
 #include "common/p25/lc/tdulc/TDULCFactory.h"
@@ -325,6 +326,22 @@ void buildUUVchRequest(uint32_t srcId, uint32_t dstId, uint8_t* raw)
     raw[2U] = 0x04U;
     SET_UINT24(dstId, raw, 4U);
     SET_UINT24(srcId, raw, 7U);
+    edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
+}
+
+/**
+ * @brief Builds an independently encoded CALL_ALRT_REQ ISP TSBK.
+ * @param srcId Source Address.
+ * @param dstId Target Address.
+ * @param raw The buffer to store the constructed TSBK.
+ */
+void buildCallAlertRequest(uint32_t srcId, uint32_t dstId, uint8_t* raw)
+{
+    ::memset(raw, 0x00U, p25::defines::P25_TSBK_LENGTH_BYTES);
+    raw[0U] = 0x80U | p25::defines::TSBKO::IOSP_CALL_ALRT;
+    raw[1U] = p25::defines::MFG_STANDARD;
+    SET_UINT24(dstId, raw, 4U);                                                     // Target Address
+    SET_UINT24(srcId, raw, 7U);                                                     // Source Address
     edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
 }
 
@@ -2722,6 +2739,120 @@ TEST_CASE("P25 roaming WUID is released when its registration timer expires", "[
 
     // the released WUID is reassigned
     CHECK(registerUnit(harness, 0xBB800U, 0x003U, 1002U) == wuid);
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 services addressed to a roaming WUID never reach the network", "[p25][host][roaming][target]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true);
+    harness.network()->activateForTest();
+    prepareRoaming(harness, true, {});
+
+    REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1001U) == 1001U);
+    const uint32_t wuid = registerUnit(harness, 0xBB800U, 0x002U, 1002U);
+    REQUIRE(wuid == 9000000U);
+    const uint32_t tsduBefore = harness.network()->tsduWriteCount();
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+
+    SECTION("Unit_To_Unit_Request_Denied") {
+        buildUUVchRequest(1001U, wuid, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+
+        const std::vector<uint8_t>* deny = findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP);
+        REQUIRE(deny != nullptr);
+        CHECK((*deny)[3U] == p25::defines::ReasonCode::DENY_SYS_UNSUPPORTED_SVC);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_UU_VCH) == nullptr);       // no grant
+        CHECK_FALSE(HostTestHooks::p25IsU2UGranted(*harness.m_control, 1001U, wuid));
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
+    SECTION("Call_Alert_Denied") {
+        buildCallAlertRequest(1001U, wuid, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+
+        const std::vector<uint8_t>* deny = findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP);
+        REQUIRE(deny != nullptr);
+        CHECK((*deny)[3U] == p25::defines::ReasonCode::DENY_SYS_UNSUPPORTED_SVC);
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
+    SECTION("Home_Unit_To_Unit_Request_Unaffected") {
+        REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1003U) == 1003U);
+        buildUUVchRequest(1001U, 1003U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::OSP_DENY_RSP) == nullptr);
+    }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 voice and data network guards suppress roaming WUIDs", "[p25][host][roaming][guards]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true);
+    harness.network()->activateForTest();
+    prepareRoaming(harness, true, {});
+
+    SECTION("Voice") {
+        p25::lc::LC lc;
+        lc.setLCO(p25::defines::LCO::PRIVATE);
+        lc.setGroup(false);
+
+        // home to home is written (proves the observation works)
+        lc.setSrcId(1001U);
+        lc.setDstId(1002U);
+        uint32_t before = harness.network()->voiceWriteCount();
+        HostTestHooks::p25WriteVoiceNetwork(*harness.m_control, lc);
+        CHECK(harness.network()->voiceWriteCount() == before + 1U);
+
+        // roaming source
+        lc.setSrcId(9000000U);
+        before = harness.network()->voiceWriteCount();
+        HostTestHooks::p25WriteVoiceNetwork(*harness.m_control, lc);
+        CHECK(harness.network()->voiceWriteCount() == before);
+
+        // roaming destination of a unit-to-unit call
+        lc.setSrcId(1001U);
+        lc.setDstId(9000000U);
+        HostTestHooks::p25WriteVoiceNetwork(*harness.m_control, lc);
+        CHECK(harness.network()->voiceWriteCount() == before);
+    }
+
+    SECTION("Data") {
+        p25::data::DataHeader header;
+
+        // home logical link is written (proves the observation works)
+        header.setLLId(1001U);
+        uint32_t before = harness.network()->pduWriteCount();
+        HostTestHooks::p25WriteDataNetwork(*harness.m_control, header, false);
+        CHECK(harness.network()->pduWriteCount() == before + 1U);
+
+        // roaming logical link (unextended source, or destination)
+        header.setLLId(9000000U);
+        before = harness.network()->pduWriteCount();
+        HostTestHooks::p25WriteDataNetwork(*harness.m_control, header, false);
+        CHECK(harness.network()->pduWriteCount() == before);
+
+        // extended addressing: roaming source, home destination
+        header.setLLId(1001U);
+        header.setSrcLLId(9000000U);
+        HostTestHooks::p25WriteDataNetwork(*harness.m_control, header, true);
+        CHECK(harness.network()->pduWriteCount() == before);
+
+        // extended addressing: home source, roaming destination
+        header.setLLId(9000000U);
+        header.setSrcLLId(1001U);
+        HostTestHooks::p25WriteDataNetwork(*harness.m_control, header, true);
+        CHECK(harness.network()->pduWriteCount() == before);
+    }
 
     p25::lc::TSBK::setSiteData(previous);
 }
