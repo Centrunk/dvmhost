@@ -488,8 +488,9 @@ namespace p25
              * @param service Service being denied.
              * @param grp Flag indicating the destination ID is a talkgroup.
              * @param aiv 
+             * @param noNet Flag indicating the deny response must not be mirrored to the network.
              */
-            void writeRF_TSDU_Deny(uint32_t srcId, uint32_t dstId, uint8_t reason, uint8_t service, bool grp = false, bool aiv = false);
+            void writeRF_TSDU_Deny(uint32_t srcId, uint32_t dstId, uint8_t reason, uint8_t service, bool grp = false, bool aiv = false, bool noNet = false);
             /**
              * @brief Helper to write a group affiliation response packet.
              * @param srcId Source Radio ID.
@@ -525,6 +526,18 @@ namespace p25
              * @param grp Flag indicating the destination ID is a talkgroup.
              */
             bool writeRF_TSDU_Loc_Reg_Rsp(uint32_t srcId, uint32_t dstId, bool grp);
+
+            /**
+             * @brief Applies the roaming SU service policy to an inbound TSBK from a pool WUID.
+             *  Until roaming identity translation exists, roaming SUs are served locally only and
+             *  nothing carrying a pool WUID is written to the network.
+             * @param tsbk Inbound TSBK.
+             * @param srcId Source address (WUID) of the TSBK.
+             * @param dstId Destination address of the TSBK.
+             * @param[out] handled Set true when the gate fully processed the TSBK.
+             * @returns bool True if the TSBK may continue to normal processing; otherwise, false.
+             */
+            bool processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId, bool& handled);
 
             /**
              * @brief Helper to write a LLA demand.

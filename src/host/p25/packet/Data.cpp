@@ -1007,6 +1007,10 @@ void Data::writeNetwork(const uint8_t currentBlock, const uint8_t* data, uint32_
     if (m_p25->m_network == nullptr)
         return;
 
+    // roaming SU WUIDs are local only until roaming identity translation exists
+    if (m_p25->m_wuidLookup->isPoolWuid(m_rfAssembler->dataHeader.getLLId()))
+        return;
+
     if (m_p25->m_rfTimeoutTimer.isRunning() && m_p25->m_rfTimeoutTimer.hasExpired())
         return;
 

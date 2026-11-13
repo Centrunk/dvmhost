@@ -234,6 +234,20 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
 
         m_lastMFID = tsbk->getMFId();
 
+        // roaming SUs are served locally until roaming identity translation exists
+        if (tsbk->getLCO() != TSBKO::IOSP_U_REG && m_p25->m_wuidLookup->isPoolWuid(srcId)) {
+            bool handled = false;
+            if (!processRoamingUnit(tsbk.get(), srcId, dstId, handled)) {
+                if (!m_p25->m_ccRunning) {
+                    m_p25->writeRF_Nulls();
+                }
+
+                m_inbound = false;
+                m_p25->m_rfState = prevRfState;
+                return handled;
+            }
+        }
+
         // handle standard P25 reference opcodes
         switch (tsbk->getLCO()) {
             case TSBKO::IOSP_GRP_VCH:
@@ -794,6 +808,11 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                 VERBOSE_LOG_TSBK(tsbk->toString(true), srcId, dstId);
                 if (m_p25->m_ackTSBKRequests) {
                     writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_GRP_AFF, true, true);
+                }
+
+                if (m_p25->m_wuidLookup->isPoolWuid(srcId)) {
+                    LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming unit, group sysId = $%03X (foreign groups not translated), srcId = %u, dstId = %u",
+                        tsbk->toString(true).c_str(), tsbk->getSysId(), srcId, dstId);
                 }
 
                 if (writeRF_TSDU_Grp_Aff_Rsp(srcId, dstId) == ResponseCode::REFUSED) {
@@ -1661,6 +1680,60 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Cmd(uint32_t dstId)
     ::ActivityLogEx(LOG_P25, true, "unit registration command from %u to %u", WUID_FNE, dstId);
 
     writeRF_TSDU_SBF_Imm(osp.get(), true);
+}
+
+/* Applies the roaming SU service policy to an inbound TSBK from a pool WUID. */
+
+bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32_t dstId, bool& handled)
+{
+    assert(tsbk != nullptr);
+    handled = false;
+
+    const uint8_t lco = tsbk->getLCO();
+
+    // an unassigned or expired WUID must re-register (TIA-102.AABD-B 6.6.1)
+    lookups::P25WuidLookup::SUID suid;
+    if (!m_p25->m_wuidLookup->findByWuid(srcId, suid) || !m_p25->m_affiliations->isUnitReg(srcId)) {
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s, unassigned roaming WUID, srcId = %u", tsbk->toString(true).c_str(), srcId);
+        writeRF_TSDU_U_Reg_Cmd(srcId);
+        handled = true;
+        return false;
+    }
+
+    switch (lco) {
+    case TSBKO::IOSP_GRP_AFF:
+    case TSBKO::ISP_LOC_REG_REQ:
+    case TSBKO::ISP_U_DEREG_REQ:
+        m_p25->m_affiliations->touchUnitRegTimer(srcId);
+        return true;
+
+    case TSBKO::ISP_EMERG_ALRM_REQ:
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s, roaming unit emergency alarm, not forwarded (requires roaming translation), netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u, siteId = $%02X",
+            tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId, srcId, m_p25->m_siteData.siteId());
+        ::ActivityLogEx(LOG_P25, true, "emergency alarm request from roaming unit %u ($%05X.$%03X), wuid = %u, site $%02X, not forwarded",
+            suid.unitId, suid.netId, suid.sysId, srcId, m_p25->m_siteData.siteId());
+        writeRF_TSDU_ACK_FNE(srcId, TSBKO::ISP_EMERG_ALRM_REQ, false, true);
+        handled = true;
+        return false;
+
+    case TSBKO::IOSP_ACK_RSP:
+    case TSBKO::ISP_STS_Q_RSP:
+    case TSBKO::ISP_GRP_AFF_Q_RSP:
+    case TSBKO::ISP_AUTH_RESP:
+    case TSBKO::IOSP_RAD_MON:
+        if (m_verbose) {
+            LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming unit response ignored, srcId = %u", tsbk->toString(true).c_str(), srcId);
+        }
+        handled = true;
+        return false;
+
+    default:
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, roaming unit service not supported (requires roaming translation), netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u, dstId = %u",
+            tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId, srcId, dstId);
+        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_SYS_UNSUPPORTED_SVC, lco, false, false, true);
+        handled = true;
+        return false;
+    }
 }
 
 /* Helper to write a emergency alarm packet. */
@@ -3515,7 +3588,7 @@ void ControlSignaling::writeRF_TSDU_ACK_FNE(uint32_t dstId, uint32_t service, bo
 
 /* Helper to write a deny packet. */
 
-void ControlSignaling::writeRF_TSDU_Deny(uint32_t srcId, uint32_t dstId, uint8_t reason, uint8_t service, bool grp, bool aiv)
+void ControlSignaling::writeRF_TSDU_Deny(uint32_t srcId, uint32_t dstId, uint8_t reason, uint8_t service, bool grp, bool aiv, bool noNet)
 {
     std::unique_ptr<OSP_DENY_RSP> osp = std::make_unique<OSP_DENY_RSP>();
     uint8_t mfId = transactionMFId(srcId, dstId, service, m_lastMFID);
@@ -3538,11 +3611,11 @@ void ControlSignaling::writeRF_TSDU_Deny(uint32_t srcId, uint32_t dstId, uint8_t
     // are deny responses disabled?
     if (!m_p25->m_dedicatedControl && !m_p25->m_controlOnly && m_p25->m_disableDenyResponse) {
         // at least ACK the request to try to silence the sender
-        writeRF_TSDU_ACK_FNE(srcId, service, aiv, false, false);
+        writeRF_TSDU_ACK_FNE(srcId, service, aiv, noNet, false);
         return;
     }
 
-    writeRF_TSDU_SBF_Imm(osp.get(), false);
+    writeRF_TSDU_SBF_Imm(osp.get(), noNet);
 }
 
 /* Helper to write a group affiliation response packet. */
@@ -3558,21 +3631,27 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
 
     bool noNet = false;
 
+    // roaming SUs (pool WUIDs) are local only; they are not in the RID ACL and are not announced
+    const bool roaming = m_p25->m_wuidLookup->isPoolWuid(srcId);
+    if (roaming) {
+        noNet = true;
+    }
+
     // validate the source RID
-    if (!acl::AccessControl::validateSrcId(srcId)) {
+    if (!roaming && !acl::AccessControl::validateSrcId(srcId)) {
         LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, RID rejection, srcId = %u", iosp->toString().c_str(), srcId);
         ::ActivityLogEx(LOG_P25, true, "group affiliation request from %u to %s %u denied", srcId, "TG ", dstId);
 
-        if (m_p25->m_affiliations->groupUnaff(srcId) && m_p25->m_network != nullptr)
+        if (m_p25->m_affiliations->groupUnaff(srcId) && !roaming && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliationRemoval(srcId);
 
-        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_REQ_UNIT_NOT_VALID, TSBKO::IOSP_GRP_AFF);
+        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_REQ_UNIT_NOT_VALID, TSBKO::IOSP_GRP_AFF, false, false, roaming);
 
         return ResponseCode::REFUSED;
     }
 
     // register the RID if the MFID is $90 (this is typically DVRS, and DVRS won't unit register so we'll do it for them)
-    if (!m_p25->m_affiliations->isUnitReg(srcId) && m_lastMFID == MFG_MOT) {
+    if (!roaming && !m_p25->m_affiliations->isUnitReg(srcId) && m_lastMFID == MFG_MOT) {
         // validate the source RID
         if (!acl::AccessControl::validateSrcId(srcId)) {
             LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, RID rejection, srcId = %u", iosp->toString().c_str(), srcId);
@@ -3596,10 +3675,10 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
         LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, RID not registered, srcId = %u", iosp->toString().c_str(), srcId);
         ::ActivityLogEx(LOG_P25, true, "group affiliation request from %u to %s %u denied", srcId, "TG ", dstId);
 
-        if (m_p25->m_affiliations->groupUnaff(srcId) && m_p25->m_network != nullptr)
+        if (m_p25->m_affiliations->groupUnaff(srcId) && !roaming && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliationRemoval(srcId);
 
-        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_REQ_UNIT_NOT_VALID, TSBKO::IOSP_GRP_AFF);
+        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_REQ_UNIT_NOT_VALID, TSBKO::IOSP_GRP_AFF, false, false, roaming);
 
         return ResponseCode::REFUSED;
     }
@@ -3644,7 +3723,7 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
         // update dynamic affiliation table
         m_p25->m_affiliations->groupAff(srcId, dstId);
 
-        if (m_p25->m_network != nullptr)
+        if (!roaming && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliation(srcId, dstId);
 
         // conventional registration or DVRS support?
@@ -3817,7 +3896,8 @@ void ControlSignaling::writeRF_TSDU_U_Dereg_Ack(uint32_t srcId)
 
         ::ActivityLogEx(LOG_P25, true, "unit deregistration request from %u", srcId);
 
-        writeRF_TSDU_SBF_Imm(osp.get(), false);
+        // roaming SU WUIDs are local only
+        writeRF_TSDU_SBF_Imm(osp.get(), m_p25->m_wuidLookup->isPoolWuid(srcId));
 
 //        if (m_p25->m_network != nullptr)
 //            m_p25->m_network->announceUnitDeregistration(srcId);
@@ -3863,8 +3943,14 @@ bool ControlSignaling::writeRF_TSDU_Loc_Reg_Rsp(uint32_t srcId, uint32_t dstId, 
 
     bool noNet = false;
 
+    // roaming SUs (pool WUIDs) are local only; they are not in the RID ACL and are not announced
+    const bool roaming = m_p25->m_wuidLookup->isPoolWuid(srcId);
+    if (roaming) {
+        noNet = true;
+    }
+
     // validate the source RID
-    if (!acl::AccessControl::validateSrcId(srcId)) {
+    if (!roaming && !acl::AccessControl::validateSrcId(srcId)) {
         LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, RID rejection, srcId = %u", osp->toString().c_str(), srcId);
         ::ActivityLogEx(LOG_P25, true, "location registration request from %u denied", srcId);
         osp->setResponse(ResponseCode::REFUSED);
@@ -3920,7 +4006,7 @@ bool ControlSignaling::writeRF_TSDU_Loc_Reg_Rsp(uint32_t srcId, uint32_t dstId, 
         // update dynamic affiliation table
         m_p25->m_affiliations->groupAff(srcId, dstId);
 
-        if (m_p25->m_network != nullptr)
+        if (!roaming && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliation(srcId, dstId);
 
         ret = true;

@@ -261,6 +261,26 @@ void buildUUVchRequest(uint32_t srcId, uint32_t dstId, uint8_t* raw)
     edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
 }
 
+/**
+ * @brief Builds an independently encoded abbreviated GRP_AFF_REQ ISP TSBK (TIA-102.AABC-D Figure 6.1.9-1).
+ * @param srcId Source Address (WUID).
+ * @param sysId Group home System ID.
+ * @param groupId Group ID.
+ * @param raw The buffer to store the constructed TSBK.
+ */
+void buildGroupAffRequest(uint32_t srcId, uint32_t sysId, uint16_t groupId, uint8_t* raw)
+{
+    ::memset(raw, 0x00U, p25::defines::P25_TSBK_LENGTH_BYTES);
+    raw[0U] = 0x80U | p25::defines::TSBKO::IOSP_GRP_AFF;
+    raw[1U] = p25::defines::MFG_STANDARD;
+    raw[3U] = (sysId >> 8) & 0x0FU;                                                 // System ID (b11-b8)
+    raw[4U] = sysId & 0xFFU;                                                        // System ID (b7-b0)
+    raw[5U] = (groupId >> 8) & 0xFFU;                                               // Group ID
+    raw[6U] = groupId & 0xFFU;
+    SET_UINT24(srcId, raw, 7U);                                                     // Source Address
+    edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
+}
+
 /** 
  * @brief Builds an independently encoded UU ANS response ISP TSBK. 
  * @param responderId The ID of the responder.
@@ -2279,6 +2299,58 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
         REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
         CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
         CHECK(getUint24(rsp, 7U) == 0U);
+    }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming unit services before identity translation", "[p25][host][roaming][services]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    // duplex is required so single-block TSDUs are queued for getFrame() rather than written directly to the modem
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true);
+    harness.network()->activateForTest();
+    prepareRoaming(harness, true, {});
+
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+    uint8_t rsp[p25::defines::P25_TSBK_LENGTH_BYTES];
+    bool pduSeen = false;
+
+    // register a roaming SU; it receives WUID 9000000
+    buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+    REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+    REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+    REQUIRE(getUint24(rsp, 7U) == 9000000U);
+    const uint32_t tsduBefore = harness.network()->tsduWriteCount();
+
+    SECTION("Group_Affiliation_Local_Only") {
+        buildGroupAffRequest(9000000U, 0x002U, 2001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_GRP_AFF, rsp, pduSeen));
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
+    SECTION("Voice_Request_Denied_Unsupported") {
+        buildUUVchRequest(9000000U, 1002U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::OSP_DENY_RSP, rsp, pduSeen));
+        CHECK(rsp[3U] == p25::defines::ReasonCode::DENY_SYS_UNSUPPORTED_SVC);
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
+    SECTION("Emergency_Alarm_Acknowledged_Not_Forwarded") {
+        buildEmergencyAlarmRequest(9000000U, 2001U, 0x00U, 0x00U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        CHECK(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_ACK_RSP, rsp, pduSeen));
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
+    SECTION("Unassigned_Pool_WUID_Commanded_To_Register") {
+        buildUUVchRequest(9000005U, 1002U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        CHECK(drainForTSBK(*harness.m_control, p25::defines::TSBKO::OSP_U_REG_CMD, rsp, pduSeen));
     }
 
     p25::lc::TSBK::setSiteData(previous);

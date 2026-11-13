@@ -398,7 +398,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             }
 
             // send network grant demand TDU
-            if (m_p25->m_network != nullptr) {
+            if (m_p25->m_network != nullptr && !m_p25->m_wuidLookup->isPoolWuid(srcId)) {
                 if (!m_p25->m_dedicatedControl && m_p25->m_convNetGrantDemand) {
                     uint8_t controlByte = network::NET_CTRL_GRANT_DEMAND;                   // Grant Demand Flag
                     if (encrypted)
@@ -1486,6 +1486,10 @@ void Voice::writeNetwork(const uint8_t *data, defines::DUID::E duid, defines::Fr
     assert(data != nullptr);
 
     if (m_p25->m_network == nullptr)
+        return;
+
+    // roaming SU WUIDs are local only until roaming identity translation exists
+    if (m_p25->m_wuidLookup->isPoolWuid(m_rfLC.getSrcId()))
         return;
 
     if (m_p25->m_network->disallowUnitToUnit() && !m_rfLC.getGroup())
