@@ -466,14 +466,16 @@ namespace p25
             void writeRF_TSDU_UU_Ans_Req(uint32_t srcId, uint32_t dstId);
             /**
              * @brief Helper to write a acknowledge packet.
-             * @param srcId Source Radio ID.
+             * @param dstId Target Radio ID (WUID, or the SUID Unit ID when a SUID is given).
              * @param service Service being acknowledged.
              * @param extended Flag indicating this is an extended acknowledgement.
              * @param noNetwork Flag indicating the acknowledgement must not be forwarded to the network.
              * @param refreshRegistration Flag indicating the acknowledgement confirms a valid WUID transaction.
+             * @param suidNetId Target SU SUID WACN ID for an extended acknowledgement; 0 uses the site WACN ID.
+             * @param suidSysId Target SU SUID System ID for an extended acknowledgement; 0 uses the site System ID.
              */
             void writeRF_TSDU_ACK_FNE(uint32_t dstId, uint32_t service, bool extended, bool noNetwork,
-                bool refreshRegistration = true);
+                bool refreshRegistration = true, uint32_t suidNetId = 0U, uint32_t suidSysId = 0U);
 
             /**
              * @brief Emits a group-affiliation query without changing transaction state.

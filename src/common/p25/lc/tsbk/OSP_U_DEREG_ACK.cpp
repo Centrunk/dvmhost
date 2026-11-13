@@ -23,7 +23,9 @@ using namespace p25::lc::tsbk;
 
 /* Initializes a new instance of the OSP_U_DEREG_ACK class. */
 
-OSP_U_DEREG_ACK::OSP_U_DEREG_ACK() : TSBK()
+OSP_U_DEREG_ACK::OSP_U_DEREG_ACK() : TSBK(),
+    m_suidNetId(0U),
+    m_suidSysId(0U)
 {
     m_lco = TSBKO::OSP_U_DEREG_ACK;
 }
@@ -58,8 +60,11 @@ void OSP_U_DEREG_ACK::encode(uint8_t* data, bool rawTSBK, bool noTrellis)
 
     ulong64_t tsbkValue = 0U;
 
-    tsbkValue = (tsbkValue << 8) + s_siteData.netId();                              // Network ID
-    tsbkValue = (tsbkValue << 12) + s_siteData.sysId();                             // System ID
+    // the WACN ID and System ID are those of the de-registered SU's SUID (TIA-102.AABC-D 6.2.22); a Home SU uses the site's
+    const uint32_t netId = (m_suidNetId != 0U) ? m_suidNetId : s_siteData.netId();
+    const uint32_t sysId = (m_suidSysId != 0U) ? m_suidSysId : s_siteData.sysId();
+    tsbkValue = (tsbkValue << 8) + (netId & 0xFFFFFU);                              // Network ID
+    tsbkValue = (tsbkValue << 12) + (sysId & 0xFFFU);                               // System ID
     tsbkValue = (tsbkValue << 24) + m_dstId;                                        // Destination Radio Address
 
     std::unique_ptr<uint8_t[]> tsbk = TSBK::fromValue(tsbkValue);

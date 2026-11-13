@@ -8,7 +8,9 @@
  *
  */
 #include "host/Defines.h"
+#include "common/p25/lc/tsbk/IOSP_ACK_RSP.h"
 #include "common/p25/lc/tsbk/OSP_LOC_REG_RSP.h"
+#include "common/p25/lc/tsbk/OSP_U_DEREG_ACK.h"
 #include "common/p25/lc/tsbk/IOSP_U_REG.h"
 #include "common/p25/lc/tsbk/TSBKFactory.h"
 #include "common/p25/lc/tsbk/mbt/MBT_OSP_U_REG_RSP.h"
@@ -109,6 +111,78 @@ TEST_CASE("TSBK registration responses", "[p25][tsbk][registration]") {
         for (uint32_t i = 0U; i < 8U; i++) {
             INFO("data octet " << i);
             CHECK(raw[i] == expected[i]);
+        }
+    }
+
+    SECTION("U_DEREG_ACK_Roaming_Known_Bytes_Figure_6_2_22_1") {
+        OSP_U_DEREG_ACK osp;
+        osp.setSUIDNetId(0x12345U);
+        osp.setSUIDSysId(0x6B7U);
+        osp.setDstId(0x0F4240U);                                                    // Source ID (SUID Unit ID)
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        osp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x00U, 0x12U, 0x34U, 0x56U, 0xB7U, 0x0FU, 0x42U, 0x40U };
+        CHECK((raw[0U] & 0x3FU) == TSBKO::OSP_U_DEREG_ACK);
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_DEREG_ACK_Home_Unchanged") {
+        OSP_U_DEREG_ACK osp;
+        osp.setDstId(1001U);
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        osp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x00U, 0xBBU, 0x80U, 0x02U, 0xA5U, 0x00U, 0x03U, 0xE9U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("ACK_RSP_FNE_Target_SUID_Known_Bytes_Figure_6_2_1_2") {
+        IOSP_ACK_RSP iosp;
+        iosp.setAIV(true);
+        iosp.setEX(true);
+        iosp.setService(TSBKO::IOSP_U_REG);
+        iosp.setSUIDNetId(0x12345U);
+        iosp.setSUIDSysId(0x6B7U);
+        iosp.setSrcId(0x0F4240U);                                                   // Target ID (SUID Unit ID)
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0xECU, 0x12U, 0x34U, 0x56U, 0xB7U, 0x0FU, 0x42U, 0x40U };
+        CHECK((raw[0U] & 0x3FU) == TSBKO::IOSP_ACK_RSP);
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("ACK_RSP_FNE_Extended_Home_Unchanged") {
+        IOSP_ACK_RSP iosp;
+        iosp.setAIV(true);
+        iosp.setEX(true);
+        iosp.setService(TSBKO::IOSP_U_REG);
+        iosp.setSrcId(1001U);
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0xECU, 0xBBU, 0x80U, 0x02U, 0xA5U, 0x00U, 0x03U, 0xE9U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
         }
     }
 

@@ -60,6 +60,18 @@ namespace p25
                  * @returns std::string String representation of the TSBK.
                  */
                 std::string toString(bool isp = false) override;
+
+            public:
+                /**
+                 * @brief SUID WACN ID of the de-registered SU (20-bit).
+                 *  A value of 0 encodes the site WACN ID (Home SU).
+                 */
+                DECLARE_PROPERTY(uint32_t, suidNetId, SUIDNetId);
+                /**
+                 * @brief SUID System ID of the de-registered SU (12-bit).
+                 *  A value of 0 encodes the site System ID (Home SU).
+                 */
+                DECLARE_PROPERTY(uint32_t, suidSysId, SUIDSysId);
             };
         } // namespace tsbk
     } // namespace lc

@@ -246,13 +246,13 @@ bool drainForTSBK(p25::Control& control, uint8_t lco, uint8_t* raw, bool& pduSee
 }
 
 /**
- * @brief Drains queued RF frames and returns the LCO of every TSDU.
+ * @brief Drains queued RF frames and returns the decoded raw bytes of every TSDU.
  * @param control P25 controller.
- * @returns std::vector<uint8_t> LCOs of the drained TSDUs, in queue order.
+ * @returns std::vector<std::vector<uint8_t>> Raw TSBK bytes of the drained TSDUs, in queue order.
  */
-std::vector<uint8_t> drainLCOs(p25::Control& control)
+std::vector<std::vector<uint8_t>> drainTSBKs(p25::Control& control)
 {
-    std::vector<uint8_t> lcos;
+    std::vector<std::vector<uint8_t>> tsbks;
 
     // getFrame() returns 0U when both queues are empty
     uint8_t frame[p25::defines::P25_PDU_FRAME_LENGTH_BYTES + 2U];
@@ -263,23 +263,31 @@ std::vector<uint8_t> drainLCOs(p25::Control& control)
         }
 
         std::unique_ptr<p25::lc::TSBK> tsbk = p25::lc::tsbk::TSBKFactory::createTSBK(frame + 2U);
-        if (tsbk != nullptr) {
-            lcos.push_back(tsbk->getLCO());
+        if (tsbk != nullptr && tsbk->getDecodedRaw() != nullptr) {
+            const uint8_t* raw = tsbk->getDecodedRaw();
+            tsbks.push_back(std::vector<uint8_t>(raw, raw + p25::defines::P25_TSBK_LENGTH_BYTES));
         }
     }
 
-    return lcos;
+    return tsbks;
 }
 
 /**
- * @brief Determines whether an LCO is present in a list of drained LCOs.
- * @param lcos Drained LCOs.
+ * @brief Finds the last drained TSBK with the given LCO.
+ * @param tsbks Drained raw TSBKs.
  * @param lco LCO to find.
- * @returns bool True if the LCO is present; otherwise, false.
+ * @returns const std::vector<uint8_t>* Raw TSBK bytes, or nullptr if no TSBK has the LCO.
  */
-bool hasLCO(const std::vector<uint8_t>& lcos, uint8_t lco)
+const std::vector<uint8_t>* findTSBK(const std::vector<std::vector<uint8_t>>& tsbks, uint8_t lco)
 {
-    return std::find(lcos.begin(), lcos.end(), lco) != lcos.end();
+    const std::vector<uint8_t>* found = nullptr;
+    for (const auto& tsbk : tsbks) {
+        if ((tsbk[0U] & 0x3FU) == lco) {
+            found = &tsbk;
+        }
+    }
+
+    return found;
 }
 
 /**
@@ -2592,7 +2600,7 @@ TEST_CASE("P25 periodic network announcements never carry roaming WUIDs", "[p25]
     REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
     buildGroupAffRequest(wuid, 0x002U, 2001U, raw);
     REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
-    drainLCOs(*harness.m_control);
+    drainTSBKs(*harness.m_control);
 
     // the adjacent site update timer (75 s) drives the bulk registration and affiliation announcements
     const uint32_t bulkBefore = harness.network()->bulkAnnounceCount();
@@ -2604,6 +2612,116 @@ TEST_CASE("P25 periodic network announcements never carry roaming WUIDs", "[p25]
     for (uint32_t id : ids) {
         CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->isPoolWuid(id));
     }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming de-registration releases the WUID without RID ACL processing", "[p25][host][roaming][dereg]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true, true);
+    harness.m_ridLookup.addEntry(1001U, true, "home 1001");
+    harness.network()->activateForTest();
+    prepareRoaming(harness, true, {});
+    HostTestHooks::p25SetInhibitUnauth(*harness.m_control, true);
+    HostTestHooks::p25InstallUnitDeregCallback(*harness.m_control);
+
+    // a Home SU and a roaming SU that share Unit ID 1001
+    REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1001U) == 1001U);
+    const uint32_t wuid = registerUnit(harness, 0xBB800U, 0x002U, 1001U);
+    REQUIRE(wuid == 9000000U);
+    p25::lookups::P25WuidLookup* lookup = HostTestHooks::p25WuidLookup(*harness.m_control);
+
+    const uint32_t tsduBefore = harness.network()->tsduWriteCount();
+    const size_t announcedBefore = harness.network()->announcedIds().size();
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+
+    SECTION("SUID_Addressed_Request") {
+        // U_DE_REG_REQ carries the SUID, not the WUID (TIA-102.AABC-D 6.1.17, 2.3.28)
+        buildUnitDeregRequest(0xBB800U, 0x002U, 1001U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+
+        const std::vector<uint8_t>* ack = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK);
+        REQUIRE(ack != nullptr);
+        CHECK((*ack)[3U] == 0xBBU);                                                 // WACN ID (b19-b12)
+        CHECK((*ack)[4U] == 0x80U);                                                 // WACN ID (b11-b4)
+        CHECK((*ack)[5U] == 0x00U);                                                 // WACN ID (b3-b0), System ID (b11-b8)
+        CHECK((*ack)[6U] == 0x02U);                                                 // System ID (b7-b0)
+        CHECK(getUint24(ack->data(), 7U) == 1001U);                                 // Source ID
+
+        const std::vector<uint8_t>* fneAck = findTSBK(tsbks, p25::defines::TSBKO::IOSP_ACK_RSP);
+        REQUIRE(fneAck != nullptr);
+        CHECK((*fneAck)[6U] == 0x02U);                                              // target SU System ID, not the site's
+
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP) == nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) == nullptr);
+        CHECK(lookup->count() == 0U);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));             // the Home SU is untouched
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+        CHECK(harness.network()->announcedIds().size() == announcedBefore);
+    }
+
+    SECTION("WUID_Addressed_Request") {
+        buildUnitDeregRequest(0xBB800U, 0x001U, wuid, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK) != nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP) == nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) == nullptr);
+        CHECK(lookup->count() == 0U);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+        CHECK(harness.network()->announcedIds().size() == announcedBefore);
+    }
+
+    SECTION("Unregistered_Roaming_SUID_Ignored") {
+        buildUnitDeregRequest(0xBB800U, 0x003U, 1001U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK) == nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP) == nullptr);
+        CHECK(lookup->count() == 1U);
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming WUID is released when its registration timer expires", "[p25][host][roaming][wuid][expiry]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true);
+    harness.network()->activateForTest();
+    prepareRoaming(harness, true, {});
+    HostTestHooks::p25InstallUnitDeregCallback(*harness.m_control);
+    HostTestHooks::p25SetUnitRegTimeout(*harness.m_control, 5U);
+
+    const uint32_t wuid = registerUnit(harness, 0xBB800U, 0x002U, 1001U);
+    REQUIRE(wuid == 9000000U);
+    p25::lookups::P25WuidLookup* lookup = HostTestHooks::p25WuidLookup(*harness.m_control);
+    REQUIRE(lookup->count() == 1U);
+    const size_t announcedBefore = harness.network()->announcedIds().size();
+
+    // the affiliation clock expires the registration (shorter than the 75 s announcement timer)
+    HostTestHooks::p25ClockSiteData(*harness.m_control, 6000U);
+
+    CHECK(lookup->count() == 0U);
+    CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+    CHECK(harness.network()->announcedIds().size() == announcedBefore);
+    CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::OSP_U_REG_CMD) != nullptr);
+
+    // the released WUID is reassigned
+    CHECK(registerUnit(harness, 0xBB800U, 0x003U, 1002U) == wuid);
 
     p25::lc::TSBK::setSiteData(previous);
 }

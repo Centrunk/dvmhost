@@ -23,7 +23,9 @@ using namespace p25::lc::tsbk;
 
 /* Initializes a new instance of the IOSP_ACK_RSP class. */
 
-IOSP_ACK_RSP::IOSP_ACK_RSP() : TSBK()
+IOSP_ACK_RSP::IOSP_ACK_RSP() : TSBK(),
+    m_suidNetId(0U),
+    m_suidSysId(0U)
 {
     m_lco = TSBKO::IOSP_ACK_RSP;
 }
@@ -68,8 +70,11 @@ void IOSP_ACK_RSP::encode(uint8_t* data, bool rawTSBK, bool noTrellis)
     tsbkValue |= (m_aivFlag) ? 0x80U : 0x00U;                                       // Additional Info. Valid Flag
     tsbkValue |= (m_extendedAddrFlag) ? 0x40U : 0x00U;                              // Extended Addressing Flag
     if (m_aivFlag && m_extendedAddrFlag) {
-        tsbkValue = (tsbkValue << 20) + s_siteData.netId();                         // Network ID
-        tsbkValue = (tsbkValue << 12) + s_siteData.sysId();                         // System ID
+        // the WACN ID and System ID qualify the Target ID as the target SU's SUID (TIA-102.AABC-D Figure 6.2.1-2); a Home SU uses the site's
+        const uint32_t netId = (m_suidNetId != 0U) ? m_suidNetId : s_siteData.netId();
+        const uint32_t sysId = (m_suidSysId != 0U) ? m_suidSysId : s_siteData.sysId();
+        tsbkValue = (tsbkValue << 20) + (netId & 0xFFFFFU);                         // Network ID
+        tsbkValue = (tsbkValue << 12) + (sysId & 0xFFFU);                           // System ID
     }
     else {
         tsbkValue = (tsbkValue << 32) + m_dstId;                                    // Target Radio Address

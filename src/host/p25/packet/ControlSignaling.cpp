@@ -234,8 +234,10 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
 
         m_lastMFID = tsbk->getMFId();
 
-        // roaming SUs are served locally until roaming identity translation exists
-        if (tsbk->getLCO() != TSBKO::IOSP_U_REG && m_p25->m_wuidLookup->isPoolWuid(srcId)) {
+        // roaming SUs are served locally until roaming identity translation exists; U_REG_REQ and
+        // U_DE_REG_REQ carry the SUID rather than the WUID (TIA-102.AABC-D 2.3.28) and are classified below
+        if (tsbk->getLCO() != TSBKO::IOSP_U_REG && tsbk->getLCO() != TSBKO::ISP_U_DEREG_REQ &&
+            m_p25->m_wuidLookup->isPoolWuid(srcId)) {
             bool handled = false;
             if (!processRoamingUnit(tsbk.get(), srcId, dstId, handled)) {
                 if (!m_p25->m_ccRunning) {
@@ -885,8 +887,39 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                 // make sure control data is supported
                 IS_SUPPORT_CONTROL_CHECK(tsbk->toString(true), TSBKO::ISP_U_DEREG_REQ, srcId);
 
-                // validate the source RID
-                VALID_SRCID(tsbk->toString(true), TSBKO::ISP_U_DEREG_REQ, srcId);
+                // the request carries the SUID (TIA-102.AABC-D 6.1.17); an SU homed to another system is
+                // de-registered by its roaming WUID and is not subject to the RID ACL or auto-inhibit
+                const bool homeSU = (tsbk->getNetId() == m_p25->m_siteData.netId()) &&
+                    (tsbk->getSysId() == m_p25->m_siteData.sysId());
+                if (!homeSU) {
+                    lookups::P25WuidLookup::SUID suid = { tsbk->getNetId(), tsbk->getSysId(), srcId };
+
+                    if (m_verbose) {
+                        LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming, netId = $%05X, sysId = $%03X, unitId = %u",
+                            tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId);
+                    }
+
+                    if (m_p25->m_ackTSBKRequests) {
+                        writeRF_TSDU_ACK_FNE(srcId, TSBKO::ISP_U_DEREG_REQ, true, true, false, suid.netId, suid.sysId);
+                    }
+
+                    uint32_t wuid = 0U;
+                    if (m_p25->m_wuidLookup->findBySuid(suid, wuid)) {
+                        writeRF_TSDU_U_Dereg_Ack(wuid);
+                    }
+                    else {
+                        LogWarning(LOG_RF, P25_TSDU_STR ", %s, unregistered roaming unit, netId = $%05X, sysId = $%03X, unitId = %u",
+                            tsbk->toString(true).c_str(), suid.netId, suid.sysId, suid.unitId);
+                    }
+                    break;
+                }
+
+                // an SU that addresses de-registration by its roaming WUID; a Home Unit ID inside the pool cannot be registered
+                const bool roaming = m_p25->m_wuidLookup->isPoolWuid(srcId);
+                if (!roaming) {
+                    // validate the source RID
+                    VALID_SRCID(tsbk->toString(true), TSBKO::ISP_U_DEREG_REQ, srcId);
+                }
 
                 if (m_verbose) {
                     LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, srcId = %u, sysId = $%03X, netId = $%05X",
@@ -898,7 +931,7 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                 }
 
                 writeRF_TSDU_U_Dereg_Ack(srcId);
-                if (m_requireLLAForReg)
+                if (m_requireLLAForReg && !roaming)
                     m_p25->clearLLA_AM1_Parameters(srcId);
             }
             break;
@@ -912,13 +945,20 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                         tsbk->toString(true).c_str(), srcId, tsbk->getSysId(), tsbk->getNetId());
                 }
 
+                const bool homeSU = (tsbk->getNetId() == m_p25->m_siteData.netId()) &&
+                    (tsbk->getSysId() == m_p25->m_siteData.sysId());
+
                 if (m_p25->m_ackTSBKRequests) {
-                    writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_U_REG, true, true);
+                    if (homeSU) {
+                        writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_U_REG, true, true);
+                    }
+                    else {
+                        // address the requesting SUID; the Unit ID alone may name a different, registered Home SU
+                        writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_U_REG, true, true, false, tsbk->getNetId(), tsbk->getSysId());
+                    }
                 }
 
                 // roaming SUs are not LLA-authenticated; LLA keys are indexed by Home Unit ID
-                const bool homeSU = (tsbk->getNetId() == m_p25->m_siteData.netId()) &&
-                    (tsbk->getSysId() == m_p25->m_siteData.sysId());
                 if (m_requireLLAForReg && homeSU) {
                     writeRF_TSDU_Auth_Dmd(srcId);
                 }
@@ -1703,7 +1743,6 @@ bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32
     switch (lco) {
     case TSBKO::IOSP_GRP_AFF:
     case TSBKO::ISP_LOC_REG_REQ:
-    case TSBKO::ISP_U_DEREG_REQ:
         m_p25->m_affiliations->touchUnitRegTimer(srcId);
         return true;
 
@@ -3560,7 +3599,8 @@ void ControlSignaling::writeRF_TSDU_UU_Ans_Req(uint32_t srcId, uint32_t dstId)
 
 /* Helper to write a acknowledge packet. */
 
-void ControlSignaling::writeRF_TSDU_ACK_FNE(uint32_t dstId, uint32_t service, bool extended, bool noNetwork, bool refreshRegistration)
+void ControlSignaling::writeRF_TSDU_ACK_FNE(uint32_t dstId, uint32_t service, bool extended, bool noNetwork, bool refreshRegistration,
+    uint32_t suidNetId, uint32_t suidSysId)
 {
     std::unique_ptr<IOSP_ACK_RSP> iosp = std::make_unique<IOSP_ACK_RSP>();
     iosp->setAIV(true);
@@ -3572,6 +3612,8 @@ void ControlSignaling::writeRF_TSDU_ACK_FNE(uint32_t dstId, uint32_t service, bo
     if (extended) {
         iosp->setAIV(true);
         iosp->setEX(true);
+        iosp->setSUIDNetId(suidNetId);
+        iosp->setSUIDSysId(suidSysId);
     }
 
     if (m_verbose) {
@@ -3881,6 +3923,14 @@ void ControlSignaling::writeRF_TSDU_U_Dereg_Ack(uint32_t srcId)
 {
     bool dereged = false;
 
+    // a roaming SU is acknowledged by its SUID (TIA-102.AABC-D 6.2.22); look it up before de-registration releases the WUID
+    const bool roaming = m_p25->m_wuidLookup->isPoolWuid(srcId);
+    lookups::P25WuidLookup::SUID suid = { 0U, 0U, srcId };                          // 0 encodes the site WACN and System ID
+    lookups::P25WuidLookup::SUID assigned;
+    if (roaming && m_p25->m_wuidLookup->findByWuid(srcId, assigned)) {
+        suid = assigned;
+    }
+
     // remove dynamic unit registration table entry
     dereged = m_p25->m_affiliations->unitDereg(srcId);
 
@@ -3888,7 +3938,9 @@ void ControlSignaling::writeRF_TSDU_U_Dereg_Ack(uint32_t srcId)
         std::unique_ptr<OSP_U_DEREG_ACK> osp = std::make_unique<OSP_U_DEREG_ACK>();
         osp->setMFId(transactionMFId(srcId, WUID_FNE, TSBKO::ISP_U_DEREG_REQ, m_lastMFID));
         osp->setSrcId(WUID_FNE);
-        osp->setDstId(srcId);
+        osp->setSUIDNetId(suid.netId);
+        osp->setSUIDSysId(suid.sysId);
+        osp->setDstId(suid.unitId);                                                 // Source ID (SUID Unit ID)
 
         if (m_verbose) {
             LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, srcId = %u", osp->toString().c_str(), srcId);
@@ -3897,7 +3949,7 @@ void ControlSignaling::writeRF_TSDU_U_Dereg_Ack(uint32_t srcId)
         ::ActivityLogEx(LOG_P25, true, "unit deregistration request from %u", srcId);
 
         // roaming SU WUIDs are local only
-        writeRF_TSDU_SBF_Imm(osp.get(), m_p25->m_wuidLookup->isPoolWuid(srcId));
+        writeRF_TSDU_SBF_Imm(osp.get(), roaming);
 
 //        if (m_p25->m_network != nullptr)
 //            m_p25->m_network->announceUnitDeregistration(srcId);
