@@ -11,6 +11,7 @@
 #include "common/p25/lc/tsbk/OSP_LOC_REG_RSP.h"
 #include "common/p25/lc/tsbk/IOSP_U_REG.h"
 #include "common/p25/lc/tsbk/TSBKFactory.h"
+#include "common/p25/lc/tsbk/mbt/MBT_OSP_U_REG_RSP.h"
 #include "common/p25/data/DataHeader.h"
 #include "common/p25/P25Defines.h"
 #include "common/p25/SiteData.h"
@@ -79,6 +80,35 @@ TEST_CASE("TSBK registration responses", "[p25][tsbk][registration]") {
         for (uint32_t i = 0U; i < 8U; i++) {
             INFO("octet " << (i + 2U));
             CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_REG_RSP_Extended_Known_Bytes_Figure_6_2_21_2") {
+        MBT_OSP_U_REG_RSP osp;
+        osp.setResponse(ResponseCode::DENY);
+        osp.setSUIDNetId(0x12345U);
+        osp.setSUIDSysId(0x2A5U);
+        osp.setDstId(0x0F4240U);                                                    // Source ID (SUID Unit ID)
+        osp.setSrcId(0x000000U);                                                    // Source Address ("No one")
+
+        data::DataHeader header;
+        uint8_t raw[P25_PDU_UNCONFIRMED_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        osp.encodeMBT(header, raw);
+
+        CHECK(header.getFormat() == PDUFormatType::AMBT);
+        CHECK(header.getSAP() == PDUSAP::TRUNK_CTRL);
+        CHECK(header.getOutbound());
+        CHECK(header.getBlocksToFollow() == 1U);
+        CHECK(header.getLLId() == 0x000000U);
+        CHECK(header.getAMBTOpcode() == TSBKO::IOSP_U_REG);
+        CHECK(header.getAMBTField8() == 0x12U);
+        CHECK(header.getAMBTField9() == 0x34U);
+
+        const uint8_t expected[8U] = { 0x52U, 0xA5U, 0x0FU, 0x42U, 0x40U, 0x02U, 0x00U, 0x00U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("data octet " << i);
+            CHECK(raw[i] == expected[i]);
         }
     }
 
