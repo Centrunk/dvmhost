@@ -2511,6 +2511,25 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
         CHECK_FALSE(pduSeen);                                                       // no AUTH_DMD (AMBT)
     }
 
+    SECTION("Roaming_Accepted_For_Listed_System_ID") {
+        prepareRoaming(harness, true, { 0x003U, 0x002U });
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK(getUint24(rsp, 7U) == 9000000U);
+    }
+
+    SECTION("System_ID_Zero_Denied") {
+        prepareRoaming(harness, true, {});
+        buildUnitRegRequest(0xBB800U, 0x000U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK(getUint24(rsp, 7U) == 0U);
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+    }
+
     SECTION("Pool_Exhaustion_Denied") {
         prepareRoaming(harness, true, {}, 9000000U);
         buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
@@ -2853,6 +2872,89 @@ TEST_CASE("P25 voice and data network guards suppress roaming WUIDs", "[p25][hos
         HostTestHooks::p25WriteDataNetwork(*harness.m_control, header, true);
         CHECK(harness.network()->pduWriteCount() == before);
     }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming System ID list parsing is strict", "[p25][host][roaming][config]")
+{
+    auto parse = [](const std::string& document, std::vector<uint32_t>& sysIds) {
+        yaml::Node root;
+        REQUIRE(yaml::Parse(root, document));
+        return HostTestHooks::p25ParseRoamingSysIds(root["roamingSysIds"], sysIds);
+    };
+
+    std::vector<uint32_t> sysIds;
+
+    CHECK(parse("allowRoaming: true\n", sysIds));
+    CHECK(sysIds.empty());
+
+    CHECK(parse("roamingSysIds:\n  - 2A5\n  - \"0x3B\"\n  - 100\n", sysIds));
+    CHECK(sysIds == std::vector<uint32_t>({ 0x2A5U, 0x03BU, 0x100U }));
+
+    // a scalar must not read as an empty (permit-all) list
+    CHECK_FALSE(parse("roamingSysIds: 2A5\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds: \"2A5\"\n", sysIds));
+
+    // every entry must be a clean 12-bit hexadecimal value
+    CHECK_FALSE(parse("roamingSysIds:\n  - 2G5\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds:\n  - \"2A5h\"\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds:\n  - \"-1\"\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds:\n  - \" 2A5\"\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds:\n  - 1000\n", sysIds));
+    CHECK_FALSE(parse("roamingSysIds:\n  - 100000001\n", sysIds));
+}
+
+TEST_CASE("P25 roaming registration skips the RID ACL", "[p25][host][roaming][acl]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    P25HostHarness harness(true, false, 0U, 1U, false, false, true, true);
+    harness.m_ridLookup.addEntry(1001U, true, "home 1001");
+    prepareRoaming(harness, true, {});
+    HostTestHooks::p25SetInhibitUnauth(*harness.m_control, true);
+
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+
+    // a roaming SU is not in this system's RID ACL
+    buildUnitRegRequest(0xBB800U, 0x002U, 1005U, raw);
+    REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+    std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+    const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+    REQUIRE(rsp != nullptr);
+    CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+    CHECK(getUint24(rsp->data(), 7U) == 9000000U);
+    CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) == nullptr);
+
+    // control: a Home SU missing from the ACL is still refused and inhibited
+    buildUnitRegRequest(0xBB800U, 0x001U, 1006U, raw);
+    REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+    tsbks = drainTSBKs(*harness.m_control);
+    rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+    REQUIRE(rsp != nullptr);
+    CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::REFUSED);
+    CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) != nullptr);
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming registration does not refresh a same-numbered Home SU", "[p25][host][roaming][registration][timer]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    P25HostHarness harness(true, false, 0U, 1U, false, false, true);
+    prepareRoaming(harness, true, {});
+    HostTestHooks::p25InstallUnitDeregCallback(*harness.m_control);
+    HostTestHooks::p25SetUnitRegTimeout(*harness.m_control, 10U);
+
+    REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1001U) == 1001U);
+    HostTestHooks::p25ClockSiteData(*harness.m_control, 6000U);
+    REQUIRE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+
+    // the roaming SU's ACK_RSP_FNE must not restart Home SU 1001's registration timer
+    REQUIRE(registerUnit(harness, 0xBB800U, 0x002U, 1001U) == 9000000U);
+    HostTestHooks::p25ClockSiteData(*harness.m_control, 5000U);
+
+    CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+    CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 9000000U));
 
     p25::lc::TSBK::setSiteData(previous);
 }

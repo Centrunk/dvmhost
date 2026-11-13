@@ -27,6 +27,7 @@ using namespace p25::defines;
 using namespace p25;
 
 #include <cassert>
+#include <cctype>
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -195,6 +196,9 @@ Control::~Control()
 {
     if (m_affiliations != nullptr) {
         delete m_affiliations;
+    }
+
+    if (m_wuidLookup != nullptr) {
         delete m_wuidLookup;
     }
 
@@ -423,9 +427,10 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
 
     bool allowRoaming = p25Protocol["allowRoaming"].as<bool>(false);
     std::vector<uint32_t> roamingSysIds;
-    yaml::Node roamingSysIdList = p25Protocol["roamingSysIds"];
-    for (size_t i = 0; i < roamingSysIdList.size(); i++) {
-        roamingSysIds.push_back((uint32_t)::strtoul(roamingSysIdList[i].as<std::string>("0").c_str(), NULL, 16));
+    if (!parseRoamingSysIds(p25Protocol["roamingSysIds"], roamingSysIds)) {
+        LogError(LOG_P25, "Roaming disabled, roamingSysIds must be a list of hexadecimal System IDs");
+        allowRoaming = false;
+        roamingSysIds.clear();
     }
     uint32_t roamingWuidStart = p25Protocol["roamingWuidStart"].as<uint32_t>(0U);
     uint32_t roamingWuidEnd = p25Protocol["roamingWuidEnd"].as<uint32_t>(0U);
@@ -2597,16 +2602,71 @@ bool Control::configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, 
 
     // a home Unit ID inside the pool would collide with roaming WUIDs (TIA-102.AABD-B 6.2)
     if (m_ridLookup != nullptr && m_ridLookup->getACL()) {
+        uint32_t overlaps = 0U;
+        uint32_t first = 0U;
+        uint32_t last = 0U;
         for (const auto& entry : m_ridLookup->table()) {
-            if (entry.first >= wuidStart && entry.first <= wuidEnd) {
-                LogWarning(LOG_P25, "Roaming WUID pool overlaps RID ACL entry %u; home Unit IDs must not be assigned from the roaming pool", entry.first);
+            if (!entry.second.radioEnabled() || entry.first < wuidStart || entry.first > wuidEnd) {
+                continue;
             }
+
+            first = (overlaps == 0U || entry.first < first) ? entry.first : first;
+            last = (entry.first > last) ? entry.first : last;
+            overlaps++;
         }
+
+        if (overlaps > 0U) {
+            LogWarning(LOG_P25, "Roaming WUID pool overlaps %u enabled RID ACL entries (%u - %u); home Unit IDs must not be assigned from the roaming pool",
+                overlaps, first, last);
+        }
+    }
+
+    // without unit registration timeouts, WUIDs of roaming SUs that leave without de-registering are never released
+    if (m_affiliations->isDisableUnitRegTimeout()) {
+        LogWarning(LOG_P25, "Roaming WUIDs are only released by de-registration while unit registration timeouts are disabled; the roaming pool can be exhausted");
     }
 
     m_wuidLookup->setPool(wuidStart, wuidEnd);
     m_roamingSysIds = sysIds;
     m_allowRoaming = true;
+    return true;
+}
+
+/* Parses the roaming home System ID list (roamingSysIds). */
+
+bool Control::parseRoamingSysIds(yaml::Node& node, std::vector<uint32_t>& sysIds)
+{
+    sysIds.clear();
+
+    // an absent key permits any System ID in this WACN
+    if (node.isNone()) {
+        return true;
+    }
+
+    // a scalar would otherwise read as an empty list, which permits every System ID
+    if (!node.isSequence()) {
+        return false;
+    }
+
+    for (size_t i = 0U; i < node.size(); i++) {
+        const std::string value = node[i].as<std::string>("");
+
+        // strtoul() would accept leading whitespace and a sign, and stop silently at trailing garbage
+        if (value.empty() || !::isxdigit(static_cast<unsigned char>(value[0U]))) {
+            sysIds.clear();
+            return false;
+        }
+
+        char* end = nullptr;
+        const unsigned long sysId = ::strtoul(value.c_str(), &end, 16);
+        if (end == nullptr || *end != '\0' || sysId > 0xFFFUL) {
+            sysIds.clear();
+            return false;
+        }
+
+        sysIds.push_back(static_cast<uint32_t>(sysId));
+    }
+
     return true;
 }
 

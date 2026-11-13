@@ -3859,6 +3859,11 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
             iosp->setResponse(ResponseCode::DENY);
             reason = "roaming disabled";
         }
+        else if (suid.sysId == 0U) {
+            // System ID $000 is not a valid home system
+            iosp->setResponse(ResponseCode::DENY);
+            reason = "invalid home System ID";
+        }
         else if (!m_p25->m_roamingSysIds.empty() &&
             std::find(m_p25->m_roamingSysIds.begin(), m_p25->m_roamingSysIds.end(), suid.sysId) == m_p25->m_roamingSysIds.end()) {
             iosp->setResponse(ResponseCode::DENY);

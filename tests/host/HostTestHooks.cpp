@@ -576,6 +576,13 @@ void HostTestHooks::p25InstallUnitDeregCallback(p25::Control& control)
     control.m_affiliations->setUnitDeregCallback([&control](uint32_t id, bool autoDereg) { control.processUnitDereg(id, autoDereg); });
 }
 
+/* Parses a roaming home System ID list as setOptions() does. */
+
+bool HostTestHooks::p25ParseRoamingSysIds(yaml::Node& node, std::vector<uint32_t>& sysIds)
+{
+    return p25::Control::parseRoamingSysIds(node, sysIds);
+}
+
 /* Sets whether unauthorized RIDs are automatically inhibited. */
 
 void HostTestHooks::p25SetInhibitUnauth(p25::Control& control, bool inhibit)

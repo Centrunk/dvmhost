@@ -374,6 +374,13 @@ public:
      */
     static void p25InstallUnitDeregCallback(p25::Control& control);
     /**
+     * @brief Parses a roaming home System ID list as setOptions() does.
+     * @param node roamingSysIds configuration node.
+     * @param[out] sysIds Parsed System IDs.
+     * @returns bool True if the node is absent or a list of clean hexadecimal System IDs; otherwise, false.
+     */
+    static bool p25ParseRoamingSysIds(yaml::Node& node, std::vector<uint32_t>& sysIds);
+    /**
      * @brief Sets whether unauthorized RIDs are automatically inhibited.
      * @param control P25 controller.
      * @param inhibit Flag indicating whether unauthorized RIDs are inhibited.
