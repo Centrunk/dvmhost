@@ -26,6 +26,7 @@
 #include "common/p25/lc/tsbk/TSBKFactory.h"
 #include "common/p25/P25Utils.h"
 #include "host/p25/packet/ControlSignaling.h"
+#include "host/p25/packet/Data.h"
 #include "host/p25/packet/Voice.h"
 
 #include <cstring>
@@ -563,9 +564,60 @@ bool HostTestHooks::p25IsUnitReg(const p25::Control& control, uint32_t srcId)
 
 void HostTestHooks::p25UnitDereg(p25::Control& control, uint32_t srcId, bool automatic)
 {
+    p25InstallUnitDeregCallback(control);
+    control.m_affiliations->unitDereg(srcId, automatic);
+}
+
+/* Installs the unit de-registration callback normally installed by setOptions(). */
+
+void HostTestHooks::p25InstallUnitDeregCallback(p25::Control& control)
+{
     // the production callback is installed by setOptions(), which the harness does not call
     control.m_affiliations->setUnitDeregCallback([&control](uint32_t id, bool autoDereg) { control.processUnitDereg(id, autoDereg); });
-    control.m_affiliations->unitDereg(srcId, automatic);
+}
+
+/* Sets whether unauthorized RIDs are automatically inhibited. */
+
+void HostTestHooks::p25SetInhibitUnauth(p25::Control& control, bool inhibit)
+{
+    control.m_inhibitUnauth = inhibit;
+}
+
+/* Sets the unit registration timeout applied to subsequent registrations. */
+
+void HostTestHooks::p25SetUnitRegTimeout(p25::Control& control, uint32_t seconds)
+{
+    control.m_affiliations->setUnitRegTimeout(seconds);
+}
+
+/* Clocks the P25 site data, affiliation and network announcement timers. */
+
+void HostTestHooks::p25ClockSiteData(p25::Control& control, uint32_t ms)
+{
+    control.clockSiteData(ms);
+}
+
+/* Writes an RF voice LDU1 to the network using the given link control. */
+
+void HostTestHooks::p25WriteVoiceNetwork(p25::Control& control, const p25::lc::LC& lc)
+{
+    uint8_t data[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    ::memset(data, 0x00U, sizeof(data));
+
+    control.m_voice->m_rfLC = lc;
+    control.m_voice->writeNetwork(data, p25::defines::DUID::LDU1);
+}
+
+/* Writes an RF PDU block to the network using the given data header. */
+
+void HostTestHooks::p25WriteDataNetwork(p25::Control& control, const p25::data::DataHeader& header, bool extendedAddress)
+{
+    uint8_t data[p25::defines::P25_PDU_FEC_LENGTH_BYTES];
+    ::memset(data, 0x00U, sizeof(data));
+
+    control.m_data->m_rfAssembler->dataHeader = header;
+    control.m_data->m_rfAssembler->setExtendedAddress(extendedAddress);
+    control.m_data->writeNetwork(0U, data, p25::defines::P25_PDU_FEC_LENGTH_BYTES, true);
 }
 
 /* Injects an independently encoded raw TSBK into P25 control signaling. */

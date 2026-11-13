@@ -369,6 +369,42 @@ public:
      */
     static void p25UnitDereg(p25::Control& control, uint32_t srcId, bool automatic);
     /**
+     * @brief Installs the unit de-registration callback normally installed by setOptions().
+     * @param control P25 controller.
+     */
+    static void p25InstallUnitDeregCallback(p25::Control& control);
+    /**
+     * @brief Sets whether unauthorized RIDs are automatically inhibited.
+     * @param control P25 controller.
+     * @param inhibit Flag indicating whether unauthorized RIDs are inhibited.
+     */
+    static void p25SetInhibitUnauth(p25::Control& control, bool inhibit);
+    /**
+     * @brief Sets the unit registration timeout applied to subsequent registrations.
+     * @param control P25 controller.
+     * @param seconds Unit registration timeout in seconds.
+     */
+    static void p25SetUnitRegTimeout(p25::Control& control, uint32_t seconds);
+    /**
+     * @brief Clocks the P25 site data, affiliation and network announcement timers.
+     * @param control P25 controller.
+     * @param ms Elapsed time in milliseconds.
+     */
+    static void p25ClockSiteData(p25::Control& control, uint32_t ms);
+    /**
+     * @brief Writes an RF voice LDU1 to the network using the given link control.
+     * @param control P25 controller.
+     * @param lc Link control to place in the RF voice state.
+     */
+    static void p25WriteVoiceNetwork(p25::Control& control, const p25::lc::LC& lc);
+    /**
+     * @brief Writes an RF PDU block to the network using the given data header.
+     * @param control P25 controller.
+     * @param header PDU data header to place in the RF assembler.
+     * @param extendedAddress Flag indicating the PDU uses extended addressing.
+     */
+    static void p25WriteDataNetwork(p25::Control& control, const p25::data::DataHeader& header, bool extendedAddress);
+    /**
      * @brief Sets whether LLA is required before unit registration.
      * @param control P25 controller.
      * @param required Flag indicating whether LLA is required.

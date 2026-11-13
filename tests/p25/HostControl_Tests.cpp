@@ -29,6 +29,7 @@
 #include "host/HostTestHooks.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <thread>
@@ -244,7 +245,65 @@ bool drainForTSBK(p25::Control& control, uint8_t lco, uint8_t* raw, bool& pduSee
     return found;
 }
 
-/** 
+/**
+ * @brief Drains queued RF frames and returns the LCO of every TSDU.
+ * @param control P25 controller.
+ * @returns std::vector<uint8_t> LCOs of the drained TSDUs, in queue order.
+ */
+std::vector<uint8_t> drainLCOs(p25::Control& control)
+{
+    std::vector<uint8_t> lcos;
+
+    // getFrame() returns 0U when both queues are empty
+    uint8_t frame[p25::defines::P25_PDU_FRAME_LENGTH_BYTES + 2U];
+    uint32_t len = 0U;
+    while ((len = control.getFrame(frame)) > 0U) {
+        if (frame[0U] == modem::TAG_EOT || len != p25::defines::P25_TSDU_FRAME_LENGTH_BYTES + 2U) {
+            continue;
+        }
+
+        std::unique_ptr<p25::lc::TSBK> tsbk = p25::lc::tsbk::TSBKFactory::createTSBK(frame + 2U);
+        if (tsbk != nullptr) {
+            lcos.push_back(tsbk->getLCO());
+        }
+    }
+
+    return lcos;
+}
+
+/**
+ * @brief Determines whether an LCO is present in a list of drained LCOs.
+ * @param lcos Drained LCOs.
+ * @param lco LCO to find.
+ * @returns bool True if the LCO is present; otherwise, false.
+ */
+bool hasLCO(const std::vector<uint8_t>& lcos, uint8_t lco)
+{
+    return std::find(lcos.begin(), lcos.end(), lco) != lcos.end();
+}
+
+/**
+ * @brief Builds an independently encoded U_DE_REG_REQ ISP TSBK (TIA-102.AABC-D Figure 6.1.17-1).
+ * @param netId SUID WACN ID.
+ * @param sysId SUID System ID.
+ * @param unitId Source ID (SUID Unit ID).
+ * @param raw The buffer to store the constructed TSBK.
+ */
+void buildUnitDeregRequest(uint32_t netId, uint32_t sysId, uint32_t unitId, uint8_t* raw)
+{
+    ::memset(raw, 0x00U, p25::defines::P25_TSBK_LENGTH_BYTES);
+    raw[0U] = 0x80U | p25::defines::TSBKO::ISP_U_DEREG_REQ;
+    raw[1U] = p25::defines::MFG_STANDARD;
+    raw[2U] = 0x00U;                                                                // Reserved
+    raw[3U] = (netId >> 12) & 0xFFU;                                                // WACN ID (b19-b12)
+    raw[4U] = (netId >> 4) & 0xFFU;                                                 // WACN ID (b11-b4)
+    raw[5U] = (uint8_t)(((netId & 0x0FU) << 4) + ((sysId >> 8) & 0x0FU));           // WACN ID (b3-b0), System ID (b11-b8)
+    raw[6U] = sysId & 0xFFU;                                                        // System ID (b7-b0)
+    SET_UINT24(unitId, raw, 7U);                                                    // Source ID
+    edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
+}
+
+/**
  * @brief Builds an independently encoded UU VCH request TSBK.
  * @param srcId The ID of the source.
  * @param dstId The ID of the destination.
@@ -440,7 +499,11 @@ public:
         m_resetP25Count(0U),
         m_lastTSDUControlByte(0U),
         m_lastTSDULCO(0U),
-        m_tsduWriteCount(0U)
+        m_tsduWriteCount(0U),
+        m_announcedIds(),
+        m_bulkAnnounceCount(0U),
+        m_voiceWriteCount(0U),
+        m_pduWriteCount(0U)
     {
         // keep protocol gates deterministic for this P25-focused harness
         m_dmrEnabled = false;
@@ -644,11 +707,145 @@ public:
     /** @brief Gets the number of P25 TSDU writes. */
     uint32_t tsduWriteCount() const { return m_tsduWriteCount; }
 
+    /**
+     * @brief Records a group affiliation announcement before sending it.
+     * @param srcId Source radio ID.
+     * @param dstId Talkgroup ID.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceGroupAffiliation(uint32_t srcId, uint32_t dstId) override
+    {
+        m_announcedIds.push_back(srcId);
+        return network::Network::announceGroupAffiliation(srcId, dstId);
+    }
+
+    /**
+     * @brief Records a group affiliation removal announcement before sending it.
+     * @param srcId Source radio ID.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceGroupAffiliationRemoval(uint32_t srcId) override
+    {
+        m_announcedIds.push_back(srcId);
+        return network::Network::announceGroupAffiliationRemoval(srcId);
+    }
+
+    /**
+     * @brief Records a unit registration announcement before sending it.
+     * @param srcId Source radio ID.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitRegistration(uint32_t srcId) override
+    {
+        m_announcedIds.push_back(srcId);
+        return network::Network::announceUnitRegistration(srcId);
+    }
+
+    /**
+     * @brief Records a unit de-registration announcement before sending it.
+     * @param srcId Source radio ID.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitDeregistration(uint32_t srcId) override
+    {
+        m_announcedIds.push_back(srcId);
+        return network::Network::announceUnitDeregistration(srcId);
+    }
+
+    /**
+     * @brief Records a bulk group affiliation announcement before sending it.
+     * @param affs Source radio ID to talkgroup ID affiliations.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceAffiliationUpdate(const std::unordered_map<uint32_t, uint32_t> affs) override
+    {
+        ++m_bulkAnnounceCount;
+        for (const auto& entry : affs) {
+            m_announcedIds.push_back(entry.first);
+        }
+        return network::Network::announceAffiliationUpdate(affs);
+    }
+
+    /**
+     * @brief Records a bulk unit registration announcement before sending it.
+     * @param regs Registered radio IDs.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitRegUpdate(const std::vector<uint32_t> regs) override
+    {
+        ++m_bulkAnnounceCount;
+        m_announcedIds.insert(m_announcedIds.end(), regs.begin(), regs.end());
+        return network::Network::announceUnitRegUpdate(regs);
+    }
+
+    /**
+     * @brief Records a P25 LDU1 write before sending it.
+     * @param control Link control for the LDU1.
+     * @param lsd Low speed data.
+     * @param data Encoded LDU1 data.
+     * @param frameType Frame type.
+     * @param controlByte Network control byte.
+     * @returns bool True, if the frame was sent; otherwise, false.
+     */
+    bool writeP25LDU1(const p25::lc::LC& control, const p25::data::LowSpeedData& lsd, const uint8_t* data,
+        p25::defines::FrameType::E frameType, uint8_t controlByte = 0U) override
+    {
+        ++m_voiceWriteCount;
+        return network::Network::writeP25LDU1(control, lsd, data, frameType, controlByte);
+    }
+
+    /**
+     * @brief Records a P25 LDU2 write before sending it.
+     * @param control Link control for the LDU2.
+     * @param lsd Low speed data.
+     * @param data Encoded LDU2 data.
+     * @param controlByte Network control byte.
+     * @returns bool True, if the frame was sent; otherwise, false.
+     */
+    bool writeP25LDU2(const p25::lc::LC& control, const p25::data::LowSpeedData& lsd, const uint8_t* data,
+        uint8_t controlByte = 0U) override
+    {
+        ++m_voiceWriteCount;
+        return network::Network::writeP25LDU2(control, lsd, data, controlByte);
+    }
+
+    /**
+     * @brief Records a P25 PDU block write before sending it.
+     * @param header PDU data header.
+     * @param currentBlock Current block index.
+     * @param data PDU block data.
+     * @param len Length of PDU block data.
+     * @param lastBlock Flag indicating the last block.
+     * @returns bool True, if the block was sent; otherwise, false.
+     */
+    bool writeP25PDU(const p25::data::DataHeader& header, const uint8_t currentBlock, const uint8_t* data,
+        const uint32_t len, bool lastBlock) override
+    {
+        ++m_pduWriteCount;
+        return network::Network::writeP25PDU(header, currentBlock, data, len, lastBlock);
+    }
+
+    /** @brief Gets every radio ID carried by a unit registration or group affiliation announcement. */
+    const std::vector<uint32_t>& announcedIds() const { return m_announcedIds; }
+
+    /** @brief Gets the number of bulk (periodic) unit registration and affiliation announcements. */
+    uint32_t bulkAnnounceCount() const { return m_bulkAnnounceCount; }
+
+    /** @brief Gets the number of P25 LDU1/LDU2 writes. */
+    uint32_t voiceWriteCount() const { return m_voiceWriteCount; }
+
+    /** @brief Gets the number of P25 PDU block writes. */
+    uint32_t pduWriteCount() const { return m_pduWriteCount; }
+
 private:
     uint32_t m_resetP25Count;
     uint8_t m_lastTSDUControlByte;
     uint8_t m_lastTSDULCO;
     uint32_t m_tsduWriteCount;
+    std::vector<uint32_t> m_announcedIds;
+    uint32_t m_bulkAnnounceCount;
+    uint32_t m_voiceWriteCount;
+    uint32_t m_pduWriteCount;
 };
 
 // ---------------------------------------------------------------------------
@@ -665,12 +862,12 @@ public:
      * @param authoritative Indicates whether the host is authoritative.
      */
     explicit P25HostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U,
-        bool disallowUnitToUnit = false, bool tgAcl = false, bool duplex = false) :
+        bool disallowUnitToUnit = false, bool tgAcl = false, bool duplex = false, bool ridAcl = false) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
         m_modem(new P25TestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 1024U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
-        m_ridLookup("", 0U, false, false),
+        m_ridLookup("", 0U, ridAcl, false),
         m_tidLookup("", 0U, tgAcl, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
@@ -2351,6 +2548,61 @@ TEST_CASE("P25 roaming unit services before identity translation", "[p25][host][
         buildUUVchRequest(9000005U, 1002U, raw);
         HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
         CHECK(drainForTSBK(*harness.m_control, p25::defines::TSBKO::OSP_U_REG_CMD, rsp, pduSeen));
+    }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+/**
+ * @brief Registers an SU by U_REG_REQ and returns the Source Address from the response.
+ * @param harness Harness to drive.
+ * @param netId SUID WACN ID.
+ * @param sysId SUID System ID.
+ * @param unitId SUID Unit ID.
+ * @returns uint32_t Assigned WUID (the Unit ID for a Home SU, a pool WUID for a roaming SU).
+ */
+static uint32_t registerUnit(P25HostHarness& harness, uint32_t netId, uint32_t sysId, uint32_t unitId)
+{
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+    uint8_t rsp[p25::defines::P25_TSBK_LENGTH_BYTES];
+    bool pduSeen = false;
+
+    buildUnitRegRequest(netId, sysId, unitId, raw);
+    REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+    REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+    REQUIRE(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+    return getUint24(rsp, 7U);
+}
+
+TEST_CASE("P25 periodic network announcements never carry roaming WUIDs", "[p25][host][roaming][announce]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true);
+    harness.network()->activateForTest();
+    prepareRoaming(harness, true, {});
+
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+    REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1001U) == 1001U);
+    const uint32_t wuid = registerUnit(harness, 0xBB800U, 0x002U, 1002U);
+    REQUIRE(wuid == 9000000U);
+
+    buildGroupAffRequest(1001U, 0x001U, 2001U, raw);
+    REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+    buildGroupAffRequest(wuid, 0x002U, 2001U, raw);
+    REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+    drainLCOs(*harness.m_control);
+
+    // the adjacent site update timer (75 s) drives the bulk registration and affiliation announcements
+    const uint32_t bulkBefore = harness.network()->bulkAnnounceCount();
+    HostTestHooks::p25ClockSiteData(*harness.m_control, 76000U);
+    REQUIRE(harness.network()->bulkAnnounceCount() > bulkBefore);
+
+    const std::vector<uint32_t>& ids = harness.network()->announcedIds();
+    CHECK(std::find(ids.begin(), ids.end(), 1001U) != ids.end());
+    for (uint32_t id : ids) {
+        CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->isPoolWuid(id));
     }
 
     p25::lc::TSBK::setSiteData(previous);

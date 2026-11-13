@@ -33,6 +33,14 @@
 #include <unordered_map>
 #include <vector>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+#if defined(CATCH2_TEST_COMPILATION)
+class HostTestHooks;
+#endif
+
 namespace p25
 {
     // ---------------------------------------------------------------------------
@@ -125,6 +133,9 @@ namespace p25
 
         private:
             friend class p25::Control;
+#if defined(CATCH2_TEST_COMPILATION)
+            friend class ::HostTestHooks;
+#endif
             Control* m_p25;
 
             RPT_RF_STATE m_prevRfState;

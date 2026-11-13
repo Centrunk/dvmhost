@@ -1146,16 +1146,33 @@ void Control::clockSiteData(uint32_t ms)
             if (m_rfState == RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
                 m_control->writeAdjSSNetwork();
                 if (m_network != nullptr) {
+                    // roaming SU WUIDs are local only until roaming identity translation exists
+
                     // network announce our unit registration table if we have one
                     if (m_affiliations->unitRegSize() > 0) {
                         auto regs = m_affiliations->unitRegTable();
-                        m_network->announceUnitRegUpdate(regs);
+                        regs.erase(std::remove_if(regs.begin(), regs.end(),
+                            [this](uint32_t srcId) { return m_wuidLookup->isPoolWuid(srcId); }), regs.end());
+                        if (!regs.empty()) {
+                            m_network->announceUnitRegUpdate(regs);
+                        }
                     }
 
                     // network announce our affiliation table if we have one
                     if (m_affiliations->grpAffSize() > 0) {
                         auto affs = m_affiliations->grpAffTable();
-                        m_network->announceAffiliationUpdate(affs);
+                        for (auto it = affs.begin(); it != affs.end();) {
+                            if (m_wuidLookup->isPoolWuid(it->first)) {
+                                it = affs.erase(it);
+                            }
+                            else {
+                                ++it;
+                            }
+                        }
+
+                        if (!affs.empty()) {
+                            m_network->announceAffiliationUpdate(affs);
+                        }
                     }
                 }
                 m_adjSiteUpdate.start();
