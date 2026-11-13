@@ -24,6 +24,7 @@
 #include "common/p25/lc/TDULC.h"
 #include "common/Timer.h"
 #include "p25/Control.h"
+#include "p25/lookups/P25WuidLookup.h"
 
 #include <cstdio>
 #include <string>
@@ -498,10 +499,10 @@ namespace p25
             uint8_t writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstId);
             /**
              * @brief Helper to write a unit registration response packet.
-             * @param srcId Source Radio ID.
-             * @param sysId System ID.
+             *  Classifies the request as foreign WACN, Home SU, or roaming SU (TIA-102.AABD-B 6.2, 6.4.1.1).
+             * @param suid SUID (WACN ID, System ID, Unit ID) from the unit registration request.
              */
-            void writeRF_TSDU_U_Reg_Rsp(uint32_t srcId, uint32_t sysId);
+            void writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID& suid);
             /**
              * @brief Helper to write a unit de-registration acknowledge packet.
              * @param srcId Source Radio ID.

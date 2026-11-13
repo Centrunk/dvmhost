@@ -22,6 +22,7 @@
 #include "common/p25/lc/tdulc/TDULCFactory.h"
 #include "common/p25/lc/TSBK.h"
 #include "common/p25/lc/tsbk/IOSP_EXT_FNCT.h"
+#include "common/p25/lc/tsbk/TSBKFactory.h"
 #include "host/p25/lookups/P25WuidLookup.h"
 #include "host/modem/Modem.h"
 #include "modem/port/IModemPort.h"
@@ -168,6 +169,79 @@ void buildP25RFFrame(const uint8_t* payload, uint8_t* frame)
     frame[0U] = modem::TAG_DATA;
     frame[1U] = 0x01U;
     ::memcpy(frame + 2U, payload, p25::defines::P25_LDU_FRAME_LENGTH_BYTES);
+}
+
+/**
+ * @brief Reads a big-endian 24-bit field from a buffer.
+ * @param buffer Buffer to read from.
+ * @param offset Offset of the first byte of the field.
+ * @returns uint32_t Decoded value.
+ */
+uint32_t getUint24(const uint8_t* buffer, uint32_t offset)
+{
+    // GET_UINT24 expands to an unparenthesized expression with a trailing semicolon, so it cannot be used inside CHECK()
+    const uint32_t value = GET_UINT24(buffer, offset)
+    return value;
+}
+
+/**
+ * @brief Builds an independently encoded U_REG_REQ ISP TSBK (TIA-102.AABC-D Figure 6.1.16-1).
+ * @param netId SUID WACN ID.
+ * @param sysId SUID System ID.
+ * @param unitId SUID Unit ID.
+ * @param raw The buffer to store the constructed TSBK.
+ */
+void buildUnitRegRequest(uint32_t netId, uint32_t sysId, uint32_t unitId, uint8_t* raw)
+{
+    ::memset(raw, 0x00U, p25::defines::P25_TSBK_LENGTH_BYTES);
+    raw[0U] = 0x80U | p25::defines::TSBKO::IOSP_U_REG;
+    raw[1U] = p25::defines::MFG_STANDARD;
+    raw[2U] = 0x00U;                                                                // Capabilities
+    raw[3U] = (netId >> 12) & 0xFFU;                                                // WACN ID (b19-b12)
+    raw[4U] = (netId >> 4) & 0xFFU;                                                 // WACN ID (b11-b4)
+    raw[5U] = (uint8_t)(((netId & 0x0FU) << 4) + ((sysId >> 8) & 0x0FU));           // WACN ID (b3-b0), System ID (b11-b8)
+    raw[6U] = sysId & 0xFFU;                                                        // System ID (b7-b0)
+    SET_UINT24(unitId, raw, 7U);                                                    // Source ID
+    edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
+}
+
+/**
+ * @brief Drains queued RF frames and returns the raw bytes of the last TSDU with the given LCO.
+ * @param control P25 controller.
+ * @param lco TSBK LCO to match.
+ * @param[out] raw Raw TSBK bytes when found.
+ * @param[out] pduSeen Set true if a frame other than a TSDU or end of transmission marker (an AMBT/MBT PDU) was drained.
+ * @returns bool True if a matching TSDU was found; otherwise, false.
+ */
+bool drainForTSBK(p25::Control& control, uint8_t lco, uint8_t* raw, bool& pduSeen)
+{
+    bool found = false;
+    pduSeen = false;
+
+    // getFrame() returns 0U when both queues are empty
+    uint8_t frame[p25::defines::P25_PDU_FRAME_LENGTH_BYTES + 2U];
+    uint32_t len = 0U;
+    while ((len = control.getFrame(frame)) > 0U) {
+        // the end of transmission marker queued after a TSDU burst is not a PDU
+        if (frame[0U] == modem::TAG_EOT) {
+            continue;
+        }
+
+        if (len != p25::defines::P25_TSDU_FRAME_LENGTH_BYTES + 2U) {
+            pduSeen = true;
+            continue;
+        }
+
+        std::unique_ptr<p25::lc::TSBK> tsbk = p25::lc::tsbk::TSBKFactory::createTSBK(frame + 2U);
+        if (tsbk == nullptr || tsbk->getLCO() != lco || tsbk->getDecodedRaw() == nullptr) {
+            continue;
+        }
+
+        ::memcpy(raw, tsbk->getDecodedRaw(), p25::defines::P25_TSBK_LENGTH_BYTES);
+        found = true;
+    }
+
+    return found;
 }
 
 /** 
@@ -634,6 +708,19 @@ public:
     P25TestNetwork* m_network;
     p25::Control* m_control;
 };
+
+/**
+ * @brief Prepares a trunking harness on WACN $BB800 / System $001 with a roaming pool.
+ * @param harness Harness to configure.
+ * @param allow Flag indicating whether roaming is allowed.
+ * @param sysIds Permitted home System IDs.
+ * @param wuidEnd Last WUID of the pool (first is 9000000).
+ */
+static void prepareRoaming(P25HostHarness& harness, bool allow, const std::vector<uint32_t>& sysIds, uint32_t wuidEnd = 9000010U)
+{
+    HostTestHooks::p25SetSiteData(*harness.m_control, p25::SiteData(0xBB800U, 0x001U, 1U, 1U, 1U, 1U, 1U, 0x00U, 0));
+    REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, allow, sysIds, 9000000U, wuidEnd));
+}
 
 TEST_CASE("P25 group call termination addresses all subscriber units",
     "[p25][host][control][tdulc][call-termination]")
@@ -2093,6 +2180,106 @@ TEST_CASE("P25 roaming WUID is released on de-registration", "[p25][host][roamin
     HostTestHooks::p25UnitDereg(*harness.m_control, wuid, true);
     CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
     CHECK(lookup->count() == 0U);
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registration]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    // duplex is required so single-block TSDUs are queued for getFrame() rather than written directly to the modem
+    P25HostHarness harness(true, false, 0U, 1U, false, false, true);
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+    uint8_t rsp[p25::defines::P25_TSBK_LENGTH_BYTES];
+    bool pduSeen = false;
+
+    SECTION("Home_SU_Accepted_With_Unit_ID_As_WUID") {
+        prepareRoaming(harness, true, {});
+        buildUnitRegRequest(0xBB800U, 0x001U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK(getUint24(rsp, 7U) == 1001U);
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+    }
+
+    SECTION("Home_Unit_ID_In_Pool_Refused") {
+        prepareRoaming(harness, true, {});
+        buildUnitRegRequest(0xBB800U, 0x001U, 9000005U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::REFUSED);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 9000005U));
+    }
+
+    SECTION("Foreign_WACN_Denied_With_Extended_Format") {
+        prepareRoaming(harness, true, {});
+        buildUnitRegRequest(0x12345U, 0x001U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        CHECK_FALSE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(pduSeen);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+    }
+
+    SECTION("Roaming_Disabled_Denied") {
+        prepareRoaming(harness, false, {});
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK(((((uint32_t)rsp[2U] & 0x0FU) << 8) | rsp[3U]) == 0x002U);
+        CHECK(getUint24(rsp, 4U) == 1001U);
+        CHECK(getUint24(rsp, 7U) == 0U);
+    }
+
+    SECTION("System_ID_Not_Listed_Denied") {
+        prepareRoaming(harness, true, { 0x003U });
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+    }
+
+    SECTION("Roaming_Accepted_With_Pool_WUID_And_Home_System_ID") {
+        prepareRoaming(harness, true, {});
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK(((((uint32_t)rsp[2U] & 0x0FU) << 8) | rsp[3U]) == 0x002U);
+        CHECK(getUint24(rsp, 4U) == 1001U);
+        CHECK(getUint24(rsp, 7U) == 9000000U);
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 9000000U));
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+
+        // re-registration retains the WUID
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(getUint24(rsp, 7U) == 9000000U);
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 1U);
+    }
+
+    SECTION("Roaming_Ignores_LLA_Requirement") {
+        prepareRoaming(harness, true, {});
+        HostTestHooks::p25SetRequireLLAForReg(*harness.m_control, true);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK_FALSE(pduSeen);                                                       // no AUTH_DMD (AMBT)
+    }
+
+    SECTION("Pool_Exhaustion_Denied") {
+        prepareRoaming(harness, true, {}, 9000000U);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        buildUnitRegRequest(0xBB800U, 0x002U, 1002U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK(getUint24(rsp, 7U) == 0U);
+    }
 
     p25::lc::TSBK::setSiteData(previous);
 }

@@ -369,6 +369,12 @@ public:
      */
     static void p25UnitDereg(p25::Control& control, uint32_t srcId, bool automatic);
     /**
+     * @brief Sets whether LLA is required before unit registration.
+     * @param control P25 controller.
+     * @param required Flag indicating whether LLA is required.
+     */
+    static void p25SetRequireLLAForReg(p25::Control& control, bool required);
+    /**
      * @brief Injects an independently encoded raw TSBK into P25 control signaling.
      * @param control P25 control instance.
      * @param raw Raw 12-byte TSBK including CRC.

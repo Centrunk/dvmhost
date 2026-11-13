@@ -520,6 +520,13 @@ void HostTestHooks::p25RegisterUnit(p25::Control& control, uint32_t srcId)
     control.m_affiliations->unitReg(srcId);
 }
 
+/* Sets whether LLA is required before unit registration. */
+
+void HostTestHooks::p25SetRequireLLAForReg(p25::Control& control, bool required)
+{
+    control.m_control->m_requireLLAForReg = required;
+}
+
 /* Sets P25 site data on the controller and the TSBK/LC encoders. */
 
 void HostTestHooks::p25SetSiteData(p25::Control& control, const p25::SiteData& siteData)
