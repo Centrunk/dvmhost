@@ -650,6 +650,7 @@ The DVM protocol uses a two-level opcode system for message routing and handling
 | 0x91 | ANNOUNCE | Affiliation/registration announcements |
 | 0x92 | REPL | FNE replication (peer/TG/RID lists) |
 | 0x93 | NET_TREE | Network spanning tree management |
+| 0x94 | ROAMING | P25 roaming unit mobility (negotiated links only) |
 
 ### NAK Reason Codes
 
@@ -730,8 +731,14 @@ Reserved (6 bytes) + Peer ID (4 bytes) + Reason Code (2 bytes)
 | 0x01 | ANNC_SUBFUNC_UNIT_REG | Unit registration |
 | 0x02 | ANNC_SUBFUNC_UNIT_DEREG | Unit deregistration |
 | 0x03 | ANNC_SUBFUNC_GRP_UNAFFIL | Group unaffiliation |
+| 0x04 | ANNC_SUBFUNC_UNIT_REG_SUID | Foreign unit registration: Unit ID (3), WACN (3), System ID (2) |
+| 0x05 | ANNC_SUBFUNC_UNIT_DEREG_SUID | Foreign unit deregistration: Unit ID (3), WACN (3), System ID (2) |
+| 0x06 | ANNC_SUBFUNC_GRP_AFFIL_SUID | Foreign group affiliation: Unit ID (3), talkgroup (3), WACN (3), System ID (2) |
+| 0x07 | ANNC_SUBFUNC_GRP_UNAFFIL_SUID | Foreign group unaffiliation: Unit ID (3), WACN (3), System ID (2) |
 | 0x90 | ANNC_SUBFUNC_AFFILS | Complete affiliation update |
 | 0x91 | ANNC_SUBFUNC_UNIT_REGS | Complete unit registration update |
+| 0x92 | ANNC_SUBFUNC_UNIT_REGS_SUID | Complete foreign registration update: count (4), then 8-byte entries |
+| 0x93 | ANNC_SUBFUNC_AFFILS_SUID | Complete foreign affiliation update: count (4), then 11-byte entries |
 | 0x9A | ANNC_SUBFUNC_SITE_VC | Site voice channel list |
 
 #### Replication Sub-Functions (REPL)
@@ -750,6 +757,51 @@ Reserved (6 bytes) + Peer ID (4 bytes) + Reason Code (2 bytes)
 |------|------|---------|
 | 0x00 | NET_TREE_LIST | Spanning-tree topology list transfer |
 | 0x01 | NET_TREE_DISC | Spanning-tree disconnect notification |
+
+#### P25 Roaming Sub-Functions (ROAMING)
+
+ROAMING messages and SUID announcements are sent only on links where the peer offered
+`"p25Roaming": { "version": 1, "netId", "sysId", "rfssId" }` in its RPTC configuration and the
+master answered with RPTC ACK payload byte 0 bit 6 set (bytes 1-3 master WACN ID, bytes 4-5 master
+System ID; older peers read only bit 7). A host offers the object only when P25 is enabled and
+`protocols.p25.allowRoaming` is true, and a downstream FNE only when its `system.p25NetId` and
+`system.p25SysId` are set (with `rfssId` 0); a missing object or a `version` other than 1 means the
+peer is not roaming capable. All fields are big-endian; a WACN ID is 3 bytes holding 20 bits and a
+System ID 2 bytes holding 12 bits. Every message starts with version (1), hop count (originator sets
+8, each forwarding FNE decrements, dropped at 0) and a 4-byte transaction ID echoed in the response.
+SUID = WACN (3), System ID (2), Unit ID (3); RFSS = WACN (3), System ID (2), RFSS ID (1).
+
+| Code | Name | Body after the 6-byte header | Total |
+|------|------|------------------------------|-------|
+| 0x00 | ROAM_SERVING_REG | SUID, serving RFSS, presence | 21 |
+| 0x01 | ROAM_SERVING_REG_RSP | SUID, result, expires (4, seconds), access, flags (bit 7 inhibited) | 21 |
+| 0x02 | ROAM_SERVING_DEREG | SUID, serving RFSS | 20 |
+| 0x03 | ROAM_SERVING_DEREG_RSP | SUID, result | 15 |
+| 0x04 | ROAM_HOME_DEREG | SUID, qualifier (0 Roamed, 1 Non-Roamed) | 15 |
+| 0x05 | ROAM_HOME_DEREG_RSP | SUID, result | 15 |
+| 0x06 | ROAM_QUERY | SUID, type (0 Normal Home, 1 Forced, 2 Confirmed, 3 Serving) | 15 |
+| 0x07 | ROAM_QUERY_RSP | SUID, result, interested | 16 |
+| 0x7F | ROAM_GEN_RSP | rejected sub-function, result | 8 |
+
+Presence is 0 Not Confirmed or 1 Confirmed; access is 0 none, 1 full or 2 emergency only (only 1 and 2
+admit a roamer; an undefined access value or a flags value with bits other than bit 7 is rejected by
+the codec); interested is 1 or 0.
+
+Results: 0x00 success, 0x18 MME_SU_REG_DISALLOWED, 0x1B MME_MUST_CONFIRM_SU_PRESENCE,
+0x1C GEN_PROC_UNSUPPORTED, 0x22 MME_SU_UNKNOWN (also Not Found), 0x2F MME_SU_AUTHEN_REQUIRED,
+0x57 MME_OBJ_NOT_REG_AT_SERV. An unknown request (even sub-function) is answered with ROAM_GEN_RSP
+and 0x1C; an unknown response is dropped. A message whose length does not match its sub-function, or
+whose WACN or System ID is out of range, is dropped, as is any ROAMING message that arrives on a link
+that did not negotiate roaming. FAILED (timeout, no route) is a local outcome and is never sent: an
+FNE with no route toward a home sends nothing to the requesting host (the host's
+`roamingHomeTimeout` then produces FAILED), but answers a request relayed by a neighboring FNE with
+0x22. Confirmed and Serving queries are answered ROAM_QUERY_RSP with 0x1C.
+
+`NET_FUNC::GRANT_REQ` bytes 4-6 and 7-8 carry the source radio's home WACN ID and System ID; zero
+means the receiver's own system, and hosts currently send zero because roamer voice stays denied
+until sub-projects 3c and 3d. The P25 traffic header's netId (bytes 16-18) and sysId (bytes 11-12)
+are the source radio's home WACN ID and System ID; zero means the receiver's own system, so local
+radio traffic is unchanged.
 
 #### In-Call Control (INCALL_CTRL)
 
@@ -970,7 +1022,11 @@ The RPTC configuration uses a nested JSON structure with three main object group
   "peerClass": 2,                // Canonical peer connection class enum
 
   "conventionalPeer": false,     // Conventional (non-trunked) mode (optional)
-  "software": "string"           // Software identifier (optional)
+  "software": "string",          // Software identifier (optional)
+  "p25Roaming": {                // P25 roaming identity (optional, see P25 Roaming Sub-Functions)
+    "version": 1,
+    "netId": 0, "sysId": 0, "rfssId": 0
+  }
 }
 ```
 
