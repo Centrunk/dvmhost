@@ -225,9 +225,9 @@ Control::~Control()
         delete m_wuidLookup;
     }
 
-    if (m_network != nullptr) {
-        m_network->setP25RoamingCallback(nullptr);
-    }
+    // m_network is only dereferenced while it is still attached; Host calls detachNetwork() before
+    //  deleting the network, so a detached (nullptr) reference is never touched here
+    detachNetwork();
 
     if (m_roamingClient != nullptr) {
         delete m_roamingClient;
@@ -244,6 +244,18 @@ Control::~Control()
     if (m_data != nullptr) {
         delete m_data;
     }
+}
+
+/* Clears the P25 roaming callback this controller installed and drops its network pointer. */
+
+void Control::detachNetwork()
+{
+    if (m_network == nullptr) {
+        return;
+    }
+
+    m_network->setP25RoamingCallback(nullptr);
+    m_network = nullptr;
 }
 
 /* Resets the data states for the RF interface. */

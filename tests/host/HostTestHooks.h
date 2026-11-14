@@ -417,6 +417,12 @@ public:
      */
     static p25::lookups::P25RoamingClient* p25RoamingClient(p25::Control& control);
     /**
+     * @brief Gets the network instance the P25 controller currently references.
+     * @param control P25 controller.
+     * @returns network::Network* Referenced network, or nullptr once detached.
+     */
+    static network::Network* p25Network(const p25::Control& control);
+    /**
      * @brief Resolves a network SUID to its on-air target address.
      * @param control P25 controller.
      * @param suid SUID.

@@ -1056,6 +1056,12 @@ public:
     /** @brief Gets the captured SUID announcement entries. */
     const std::vector<SuidAnnouncementWrite>& suidAnnouncements() const { return m_suidAnnouncements; }
 
+    /**
+     * @brief Gets whether a P25 ROAMING message callback is installed.
+     * @returns bool True if a callback is installed; otherwise, false.
+     */
+    bool hasP25RoamingCallback() const { return m_p25RoamingCallback != nullptr; }
+
 private:
     uint32_t m_resetP25Count;
     uint8_t m_lastTSDUControlByte;
@@ -4133,4 +4139,21 @@ TEST_CASE("P25 roaming deregistration, refresh and query at the serving host", "
     }
 
     p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 host detaches the network before the network is destroyed", "[p25][host][roaming][shutdown]")
+{
+    // Host::setState(HOST_STATE_QUIT) deletes the network while the P25 controller lives until ~Host;
+    //  detachNetwork() must leave the controller with no reference into the network it is about to lose
+    P25HostHarness harness(true, true);
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->hasP25RoamingCallback());
+
+    harness.m_control->detachNetwork();
+    CHECK_FALSE(harness.network()->hasP25RoamingCallback());
+    CHECK(HostTestHooks::p25Network(*harness.m_control) == nullptr);
+
+    // destroy the network first, as Host does; the controller destructor must not touch it
+    delete harness.m_network;
+    harness.m_network = nullptr;
 }

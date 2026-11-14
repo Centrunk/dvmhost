@@ -625,6 +625,13 @@ p25::lookups::P25RoamingClient* HostTestHooks::p25RoamingClient(p25::Control& co
     return control.m_roamingClient;
 }
 
+/* Gets the network instance the P25 controller currently references. */
+
+network::Network* HostTestHooks::p25Network(const p25::Control& control)
+{
+    return control.m_network;
+}
+
 /* Resolves a network SUID to its on-air target address. */
 
 bool HostTestHooks::p25ResolveNetworkTarget(p25::Control& control, const network::roaming::SUID& suid, uint32_t& rfTarget)

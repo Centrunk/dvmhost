@@ -115,6 +115,13 @@ namespace p25
         ~Control();
 
         /**
+         * @brief Clears the P25 roaming callback this controller installed and drops its network pointer.
+         *  Host deletes the network at shutdown while this controller lives until ~Host; call this
+         *  before the network is destroyed so no callback or pointer into it outlives it.
+         */
+        void detachNetwork();
+
+        /**
          * @brief Resets the data states for the RF interface.
          */
         void reset();

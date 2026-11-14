@@ -1717,8 +1717,15 @@ void Host::setState(uint8_t state)
 
                 ::LogSetNetwork(nullptr);
                 if (m_network != nullptr) {
+                    // the P25 controller outlives the network (it is destroyed in ~Host); detach it first so
+                    //  neither its roaming callback nor its network pointer refers to freed memory
+                    if (m_p25 != nullptr) {
+                        m_p25->detachNetwork();
+                    }
+
                     m_network->close();
                     delete m_network;
+                    m_network = nullptr;
                 }
 
                 if (m_RESTAPI != nullptr) {
