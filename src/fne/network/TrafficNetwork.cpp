@@ -111,6 +111,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_peerAffiliationsMutex(),
     m_affiliationUpdateMutex(),
     m_unitRouteRegistry(),
+    m_roamingConfig(),
     m_subscriberOperations(),
     m_ccPeerMap(),
     m_peerReplicaKeyQueue(),
@@ -248,6 +249,13 @@ TrafficNetwork::~TrafficNetwork()
     delete m_tagP25P2;
     delete m_tagNXDN;
     delete m_tagAnalog;
+}
+
+/* Sets this FNE's P25 system identity and roaming parameters. */
+
+void TrafficNetwork::setP25RoamingConfig(const RoamingConfig& config)
+{
+    m_roamingConfig = config;
 }
 
 /* Helper to set configuration options. */

@@ -47,6 +47,7 @@
 #include "fne/network/SpanningTree.h"
 #include "fne/network/SubscriberOperationStore.h"
 #include "fne/network/UnitRouteRegistry.h"
+#include "fne/network/RoamingConfig.h"
 #include "fne/network/HAParameters.h"
 #include "fne/PatchStatusRegistry.h"
 #include "fne/CryptoContainer.h"
@@ -345,6 +346,17 @@ namespace network
          */
         void setPeerReplica(bool replica);
 
+        /**
+         * @brief Sets this FNE's P25 system identity and roaming parameters (spec 2.1, 7). Call before open().
+         * @param config Loaded roaming configuration.
+         */
+        void setP25RoamingConfig(const RoamingConfig& config);
+        /**
+         * @brief Gets this FNE's P25 system identity and roaming parameters.
+         * @returns const RoamingConfig& Roaming configuration.
+         */
+        const RoamingConfig& p25RoamingConfig() const { return m_roamingConfig; }
+
     private:
 #if defined(CATCH2_TEST_COMPILATION)
         friend class ::FNETestHooks;
@@ -422,6 +434,7 @@ namespace network
         mutable std::mutex m_peerAffiliationsMutex;
         mutable std::mutex m_affiliationUpdateMutex;
         UnitRouteRegistry m_unitRouteRegistry;
+        RoamingConfig m_roamingConfig;
         SubscriberOperationStore m_subscriberOperations;
         concurrent::shared_unordered_map<uint32_t, std::vector<uint32_t>> m_ccPeerMap;
         static std::timed_mutex s_keyQueueMutex;

@@ -427,6 +427,18 @@ system:
     # Textual identity of this FNE (this is used when peering with upstream FNEs).
     identity: MASTERFNE
 
+    # P25 WACN ID of this system (hexadecimal string, 1 - FFFFF), used for P25 roaming between linked DVM
+    #   systems. P25 roaming is negotiated only when both p25NetId and p25SysId are set to non-zero values; set
+    #   both to 0 to disable it. WACN IDs BEE00 - BEEFF are refused and stop the FNE from starting.
+    p25NetId: 0
+    # P25 System ID of this system (hexadecimal string, 1 - FFF). While both identity keys are set, a host whose
+    #   rfssConfig netId or sysId differs is rejected at login.
+    p25SysId: 0
+    # Lifetime (seconds) of a home registration this system grants to one of its SUs roaming on another system
+    #   (TIA-102.BACA-B 5.5.1); the serving system refreshes it at 80 %. Must be greater than 14400; a smaller
+    #   value disables P25 roaming.
+    p25RoamingExpires: 18000
+
     # Time in seconds between pings to peers.
     pingTime: 5
     # Maximum number of missable pings before a peer is considered disconnected.

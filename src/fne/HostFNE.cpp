@@ -684,6 +684,33 @@ bool HostFNE::createMasterNetwork()
 
     m_network->setLookups(m_ridLookup, m_ridAliasLookup, m_tidLookup, m_peerListLookup, m_cryptoLookup, m_adjSiteMapLookup);
 
+    // P25 system identity and roaming parameters (spec 2.1, 7)
+    network::RoamingConfig roamingConfig;
+    switch (roamingConfig.load(systemConf)) {
+    case network::RoamingConfigLoad::PROTECTED_WACN:
+        LogError(LOG_HOST, "system.p25NetId lies in the protected WACN range BEE00 - BEEFF; this range must never be configured");
+        delete m_network;
+        m_network = nullptr;
+        return false;
+    case network::RoamingConfigLoad::INVALID:
+        LogError(LOG_HOST, "P25 roaming disabled, system.p25NetId and system.p25SysId must both be hexadecimal values (WACN 1 - FFFFF, System ID 1 - FFF)");
+        break;
+    case network::RoamingConfigLoad::EXPIRES_TOO_SHORT:
+        LogError(LOG_HOST, "P25 roaming disabled, system.p25RoamingExpires must be greater than %u seconds", network::roaming::ROAM_MIN_EXPIRES);
+        break;
+    default:
+        break;
+    }
+
+    LogInfo("    P25 Roaming: %s", roamingConfig.enabled() ? "enabled" : "disabled");
+    if (roamingConfig.enabled()) {
+        LogInfo("    P25 Network Id: $%05X", roamingConfig.netId());
+        LogInfo("    P25 System Id: $%03X", roamingConfig.sysId());
+        LogInfo("    P25 Roaming Expires: %us", roamingConfig.expires());
+    }
+
+    m_network->setP25RoamingConfig(roamingConfig);
+
     bool ret = m_network->open();
     if (!ret) {
         delete m_network;
@@ -904,6 +931,10 @@ bool HostFNE::createPeerNetworks()
             network->setMetadata(identity, 0U, 0U, 0.0F, 0.0F, 0, 0, 0, latitude, longitude, 0, location);
             network->setLookups(m_ridLookup, m_tidLookup);
             network->setMasterPeerId(masterPeerId);
+            // offer this FNE's P25 identity to the upstream master (spec 2.3)
+            if (m_network != nullptr && m_network->p25RoamingConfig().enabled()) {
+                network->setP25RoamingIdentity(m_network->p25RoamingConfig().netId(), m_network->p25RoamingConfig().sysId(), 0U);
+            }
             network->setRadioAliasLookups(m_ridAliasLookup);
             network->setPeerLookups(m_peerListLookup);
             network->setPeerReplicationSaveACL(m_peerReplicaSavesACL);

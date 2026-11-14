@@ -14,6 +14,8 @@
 
 using namespace network;
 
+#include <cstring>
+
 // ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
@@ -55,6 +57,20 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                         network->disconnectPeer(peerId, connection);
                     }
                     else {
+                        // validate the P25 identity before any connection state changes (spec 2.2, 3.1)
+                        json::object offered = v.get<json::object>();
+                        const bool neighborOffer = (offered["externalPeer"].is<bool>() && offered["externalPeer"].get<bool>()) ||
+                            (offered["peerClass"].is<uint32_t>() && offered["peerClass"].get<uint32_t>() == (uint32_t)PEER_CONN_CLASS_NEIGHBOR);
+                        roaming::RoamingPeerConfig peerRoaming;
+                        const RoamingLogin::E roamingLogin = network->m_roamingConfig.evaluateLogin(offered, neighborOffer, peerRoaming);
+                        if (roamingLogin == RoamingLogin::REJECT_MISMATCH) {
+                            LogError(LOG_MASTER, "PEER %u RPTC NAK, P25 identity mismatch, peer netId = $%05X, sysId = $%03X, system netId = $%05X, sysId = $%03X, check the host rfssConfig netId and sysId",
+                                peerId, peerRoaming.netId, peerRoaming.sysId, network->m_roamingConfig.netId(), network->m_roamingConfig.sysId());
+                            network->writePeerNAK(peerId, TAG_REPEATER_CONFIG, NET_CONN_NAK_INVALID_CONFIG_DATA, req->address, req->addrLen);
+                            network->disconnectPeer(peerId, connection);
+                            return;
+                        }
+
                         connection->config(v.get<json::object>());
                         connection->connectionState(NET_STAT_RUNNING);
                         connection->connected(true);
@@ -74,10 +90,24 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
 
                         // attach extra notification data to the RPTC ACK to notify the peer of 
                         // the use of the alternate diagnostic port
-                        uint8_t buffer[1U];
-                        buffer[0U] = 0x80U; // this should really be a defined constant -- but
-                                            // because this is the only option and its *always* sent now
-                                            // we can just hardcode this for now
+                        // payload byte 0 bit 7 always marks the alternate diagnostics port; bit 6 and the master P25
+                        //  identity are added when this FNE has a P25 identity (spec 3.1)
+                        uint8_t buffer[roaming::CONFIG_ACK_ROAMING_LEN];
+                        ::memset(buffer, 0x00U, sizeof(buffer));
+                        uint32_t ackLength = network->m_roamingConfig.buildConfigAck(buffer, sizeof(buffer));
+                        if (ackLength == 0U) {
+                            buffer[0U] = roaming::CONFIG_ACK_ALT_DIAG_PORT;
+                            ackLength = 1U;
+                        }
+
+                        connection->p25RoamingCapable(roamingLogin == RoamingLogin::CAPABLE);
+                        connection->p25NetId(peerRoaming.netId);
+                        connection->p25SysId(peerRoaming.sysId);
+                        connection->p25RfssId(peerRoaming.rfssId);
+                        if (roamingLogin == RoamingLogin::CAPABLE) {
+                            LogInfoEx(LOG_MASTER, "PEER %u >> P25 Roaming [netId $%05X, sysId $%03X, rfssId $%02X]", peerId,
+                                peerRoaming.netId, peerRoaming.sysId, peerRoaming.rfssId);
+                        }
 
                         json::object peerConfig = connection->config();
 
@@ -239,7 +269,7 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                             }
                         }
 
-                        network->writePeerACK(peerId, streamId, buffer, 1U);
+                        network->writePeerACK(peerId, streamId, buffer, ackLength);
                         LogInfoEx(LOG_MASTER, "PEER %u RPTC ACK, completed the configuration exchange", peerId);
 
                         // setup the affiliations list for this peer
