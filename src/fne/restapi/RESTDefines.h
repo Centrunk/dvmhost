@@ -78,6 +78,10 @@
 #define FNE_GET_AFF_LIST                "/report-affiliations"
 #define FNE_GET_GRANT_LIST              "/report-grants"
 
+#define FNE_GET_P25_ROAMING_LOCATIONS   "/p25/roaming/locations"
+#define FNE_GET_P25_ROAMING_SERVED      "/p25/roaming/served"
+#define FNE_PUT_P25_ROAMING_QUERY       "/p25/roaming/query"
+
 #define FNE_GET_SPANNING_TREE           "/spanning-tree"
 
 #endif // __FNE_REST_DEFINES_H__

@@ -15,6 +15,12 @@
 #include "common/lookups/PeerListLookup.h"
 #include "common/lookups/TalkgroupRulesLookup.h"
 #include "common/restapi/http/HTTPPayload.h"
+#include "common/network/P25Roaming.h"
+#include "common/network/RTPFNEHeader.h"
+#include "fne/FNETestHooks.h"
+#include "fne/HostFNE.h"
+#include "fne/network/RoamingService.h"
+#include "fne/network/TrafficNetwork.h"
 #include "fne/restapi/RESTAPI.h"
 #include "fne/restapi/RESTDefines.h"
 #include "remote/RESTClient.h"
@@ -464,4 +470,143 @@ TEST_CASE("FNE REST reload endpoints refresh their configured lookup tables", "[
     CHECK(peers.find(2002U).peerDefault());
     CHECK_FALSE(tgs.find(3001U, 1U).isInvalid());
     CHECK(tgs.find(3002U, 1U).isInvalid());
+}
+
+TEST_CASE("FNE REST reports P25 roaming locations and served roamers and starts Forced queries", "[fne][restapi][roaming]")
+{
+    using namespace network::roaming;
+
+    HostFNE host("fne-test.yml");
+    lookups::RadioIdLookup radios("", 0U, true, false);
+    lookups::TalkgroupRulesLookup talkgroups("", 0U, true, false);
+    radios.addEntry(0x0F4240U, true, "home roamer");
+    network::TrafficNetwork traffic(&host, "127.0.0.1", 62051U, 999999U, "test-password", "test-fne",
+        false, false, false, false, true, true, true, true, true, 0U, false, true, true, true, 5U, 10U, 2U);
+    traffic.setLookups(&radios, nullptr, &talkgroups, nullptr, nullptr, nullptr);
+
+    network::RoamingConfig config;
+    REQUIRE(config.set(0xDEE00U, 0x911U, ROAM_DEFAULT_EXPIRES));
+    traffic.setP25RoamingConfig(config);
+
+    auto deliver = [&](const network::RoamingLink& from, const RoamingMessage& msg) {
+        uint8_t buffer[MSG_ROAM_MAX_LEN];
+        const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+        REQUIRE(length > 0U);
+        // the service clock is wall-clock milliseconds in production; expiresIn is derived from it
+        const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        traffic.roaming()->process(from, msg.subFunc, buffer, length, now);
+    };
+
+    // home record: $DEE00.$911.0F4240 served by $DEE00.$13B RFSS 1 behind downstream FNE 2001
+    const network::RoamingLink fne13B = { 2001U, false };
+    traffic.roaming()->linkUp(fne13B, true, true, 0xDEE00U, 0x13BU);
+    RoamingMessage reg;
+    reg.subFunc = network::NET_SUBFUNC::ROAM_SERVING_REG;
+    reg.txnId = 0x5001U;
+    reg.suid = SUID{ 0xDEE00U, 0x911U, 0x0F4240U };
+    reg.serving = RfssIdentity{ 0xDEE00U, 0x13BU, 0x01U };
+    reg.presence = RoamPresence::CONFIRMED;
+    deliver(fne13B, reg);
+
+    // served record: $DEE00.$222.5 registered at host 1001, home reached through FNE 2002 ($222)
+    const network::RoamingLink host1001 = { 1001U, false };
+    const network::RoamingLink fne222 = { 2002U, false };
+    traffic.roaming()->linkUp(host1001, true, false, 0xDEE00U, 0x911U);
+    traffic.roaming()->linkUp(fne222, true, true, 0xDEE00U, 0x222U);
+    RoamingMessage visitor = reg;
+    visitor.txnId = 0x5002U;
+    visitor.suid = SUID{ 0xDEE00U, 0x222U, 5U };
+    visitor.serving = RfssIdentity{ 0xDEE00U, 0x911U, 0x01U };
+    deliver(host1001, visitor);
+    RoamingMessage accepted;
+    accepted.subFunc = network::NET_SUBFUNC::ROAM_SERVING_REG_RSP;
+    accepted.txnId = 0x5002U;
+    accepted.suid = visitor.suid;
+    accepted.result = RoamResult::SUCCESS;
+    accepted.expires = ROAM_DEFAULT_EXPIRES;
+    accepted.access = RoamAccess::FULL;
+    deliver(fne222, accepted);
+    REQUIRE(traffic.roaming()->servingRecords().size() == 1U);
+
+    // a foreign SU registered and affiliated behind peer 3001 (with one local affiliation there too)
+    FNETestHooks::addGroupAffiliation(traffic, 3001U, 1001U, 4001U);
+    FNETestHooks::addPeer(traffic, 3001U, network::NET_STAT_RUNNING, true);
+    FNETestHooks::addSuidAffiliation(traffic, 3001U, SUID{ 0xDEE00U, 0x13BU, 7U }, 4002U);
+
+    const uint16_t port = reserveLoopbackPort();
+    ScopedRESTAPI server(port, &radios);
+    server.api.setNetwork(&traffic);
+
+    json::object locations = sendRequest(port, HTTP_GET, FNE_GET_P25_ROAMING_LOCATIONS);
+    REQUIRE(locations["locations"].is<json::array>());
+    json::array list = locations["locations"].get<json::array>();
+    REQUIRE(list.size() == 1U);
+    json::object location = list[0U].get<json::object>();
+    CHECK(location["netId"].get<uint32_t>() == 0xDEE00U);
+    CHECK(location["sysId"].get<uint32_t>() == 0x911U);
+    CHECK(location["unitId"].get<uint32_t>() == 0x0F4240U);
+    CHECK(location["servingNetId"].get<uint32_t>() == 0xDEE00U);
+    CHECK(location["servingSysId"].get<uint32_t>() == 0x13BU);
+    CHECK(location["servingRfssId"].get<uint32_t>() == 1U);
+    CHECK(location["peerId"].get<uint32_t>() == 2001U);
+    CHECK_FALSE(location["upstream"].get<bool>());
+    CHECK(location["expiresIn"].get<uint32_t>() > 0U);
+
+    json::object served = sendRequest(port, HTTP_GET, FNE_GET_P25_ROAMING_SERVED);
+    REQUIRE(served["served"].is<json::array>());
+    list = served["served"].get<json::array>();
+    REQUIRE(list.size() == 1U);
+    json::object roamer = list[0U].get<json::object>();
+    CHECK(roamer["sysId"].get<uint32_t>() == 0x222U);
+    CHECK(roamer["unitId"].get<uint32_t>() == 5U);
+    CHECK(roamer["peerId"].get<uint32_t>() == 1001U);
+
+    json::object regs = sendRequest(port, HTTP_GET, FNE_GET_UNIT_REG_LIST);
+    CHECK(regs["netId"].get<uint32_t>() == 0xDEE00U);
+    CHECK(regs["sysId"].get<uint32_t>() == 0x911U);
+    REQUIRE(regs["suidUnits"].is<json::array>());
+    json::array suidUnits = regs["suidUnits"].get<json::array>();
+    REQUIRE(suidUnits.size() == 1U);
+    CHECK(suidUnits[0U].get<json::object>()["unitId"].get<uint32_t>() == 7U);
+    CHECK(suidUnits[0U].get<json::object>()["sysId"].get<uint32_t>() == 0x13BU);
+
+    json::object affs = sendRequest(port, HTTP_GET, FNE_GET_AFF_LIST);
+    REQUIRE(affs["affiliations"].is<json::array>());
+    json::array peers = affs["affiliations"].get<json::array>();
+    REQUIRE(peers.size() == 1U);
+    json::array peerAffs = peers[0U].get<json::object>()["affiliations"].get<json::array>();
+    REQUIRE(peerAffs.size() == 2U);
+    bool sawLocal = false;
+    bool sawForeign = false;
+    for (json::value& value : peerAffs) {
+        json::object aff = value.get<json::object>();
+        if (aff["srcId"].get<uint32_t>() == 1001U) {
+            sawLocal = true;
+            CHECK(aff["sysId"].get<uint32_t>() == 0x911U);
+        }
+        if (aff["srcId"].get<uint32_t>() == 7U) {
+            sawForeign = true;
+            CHECK(aff["dstId"].get<uint32_t>() == 4002U);
+            CHECK(aff["sysId"].get<uint32_t>() == 0x13BU);
+        }
+    }
+    CHECK(sawLocal);
+    CHECK(sawForeign);
+
+    uint32_t queryNetId = 0xDEE00U;
+    uint32_t querySysId = 0x911U;
+    uint32_t queryUnitId = 0x0F4240U;
+    json::object query = json::object();
+    query["netId"].set<uint32_t>(queryNetId);
+    query["sysId"].set<uint32_t>(querySysId);
+    query["unitId"].set<uint32_t>(queryUnitId);
+    sendRequest(port, HTTP_PUT, FNE_PUT_P25_ROAMING_QUERY, query);
+
+    // no home location record for this SUID
+    uint32_t unknownUnitId = 99U;
+    query["unitId"].set<uint32_t>(unknownUnitId);
+    json::object response = json::object();
+    RESTClient::send("127.0.0.1", port, TEST_PASSWORD, HTTP_PUT, FNE_PUT_P25_ROAMING_QUERY, query, response, false, 1000, false);
+    CHECK(response["status"].get<int>() != HTTPPayload::OK);
 }

@@ -1192,6 +1192,14 @@ uint32_t FNETestHooks::findSuidRoute(TrafficNetwork& network, const roaming::SUI
     return network.m_unitRouteRegistry.resolveSuid(suid, now).peerId;
 }
 
+/* Registers and affiliates a foreign SU behind a peer. */
+
+void FNETestHooks::addSuidAffiliation(TrafficNetwork& network, uint32_t peerId, const roaming::SUID& suid, uint32_t talkgroup)
+{
+    network.m_suidRegistrations.registerUnit(suid, peerId);
+    network.m_suidRegistrations.affiliate(suid, peerId, talkgroup);
+}
+
 /* Starts the shared traffic worker pool for ordered-task tests. */
 
 void FNETestHooks::startTrafficWorkerPool(TrafficNetwork& network)

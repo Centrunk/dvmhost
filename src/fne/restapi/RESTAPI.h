@@ -488,6 +488,28 @@ namespace fne_restapi
         void restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
 
         /**
+         * @brief REST API endpoint; implements get P25 roaming home location table request.
+         * @param request HTTP request.
+         * @param reply HTTP reply.
+         * @param match HTTP request matcher.
+         */
+        void restAPI_GetP25RoamingLocations(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+        /**
+         * @brief REST API endpoint; implements get P25 served roamers request.
+         * @param request HTTP request.
+         * @param reply HTTP reply.
+         * @param match HTTP request matcher.
+         */
+        void restAPI_GetP25RoamingServed(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+        /**
+         * @brief REST API endpoint; implements put P25 roaming Forced query request.
+         * @param request HTTP request.
+         * @param reply HTTP reply.
+         * @param match HTTP request matcher.
+         */
+        void restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+
+        /**
          * @brief REST API endpoint; implements get talkgroup grant list request.
          * @param request HTTP request.
          * @param reply HTTP reply.

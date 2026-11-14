@@ -30,6 +30,7 @@ using namespace fne_restapi;
 #include <cstdlib>
 #include <cassert>
 #include <cstring>
+#include <chrono>
 
 #include <memory>
 #include <stdexcept>
@@ -721,6 +722,9 @@ void RESTAPI::initializeEndpoints()
     m_dispatcher.match(FNE_GET_RESET_CALL_SWITCHES).get(REST_API_BIND(RESTAPI::restAPI_GetResetCallSwitches, this));
     m_dispatcher.match(FNE_GET_UNIT_REG_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetUnitRegList, this));
     m_dispatcher.match(FNE_GET_AFF_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetAffList, this));
+    m_dispatcher.match(FNE_GET_P25_ROAMING_LOCATIONS).get(REST_API_BIND(RESTAPI::restAPI_GetP25RoamingLocations, this));
+    m_dispatcher.match(FNE_GET_P25_ROAMING_SERVED).get(REST_API_BIND(RESTAPI::restAPI_GetP25RoamingServed, this));
+    m_dispatcher.match(FNE_PUT_P25_ROAMING_QUERY).put(REST_API_BIND(RESTAPI::restAPI_PutP25RoamingQuery, this));
     m_dispatcher.match(FNE_GET_GRANT_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetGrantList, this));
 
     m_dispatcher.match(FNE_GET_SPANNING_TREE).get(REST_API_BIND(RESTAPI::restAPI_GetSpanningTree, this));
@@ -2630,6 +2634,31 @@ void RESTAPI::restAPI_GetUnitRegList(const HTTPPayload& request, HTTPPayload& re
 
         uint32_t totalUnits = unitRegTable.size();
         response["totalUnits"].set<uint32_t>(totalUnits);
+
+        // units above are bare IDs of this system; foreign (roaming) units are reported by SUID (spec 2.8)
+        uint32_t ownNetId = m_network->p25RoamingConfig().netId();
+        uint32_t ownSysId = m_network->p25RoamingConfig().sysId();
+        response["netId"].set<uint32_t>(ownNetId);
+        response["sysId"].set<uint32_t>(ownSysId);
+
+        json::array suidUnits = json::array();
+        for (const SuidRegistrationTable::Entry& entry : m_network->m_suidRegistrations.snapshot()) {
+            if (!entry.registered) {
+                continue;
+            }
+
+            uint32_t unitId = entry.suid.unitId;
+            uint32_t netId = entry.suid.netId;
+            uint32_t sysId = entry.suid.sysId;
+            uint32_t peerId = entry.peerId;
+            json::object unitObj = json::object();
+            unitObj["unitId"].set<uint32_t>(unitId);
+            unitObj["netId"].set<uint32_t>(netId);
+            unitObj["sysId"].set<uint32_t>(sysId);
+            unitObj["peerId"].set<uint32_t>(peerId);
+            suidUnits.push_back(json::value(unitObj));
+        }
+        response["suidUnits"].set<json::array>(suidUnits);
     }
 
     response["units"].set<json::array>(units);
@@ -2650,6 +2679,17 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
     json::array affs = json::array();
     if (m_network != nullptr) {
         uint32_t totalAffiliations = 0U;
+
+        // local affiliations are this system's units; foreign ones carry their home WACN/System ID (spec 2.8)
+        uint32_t ownNetId = m_network->p25RoamingConfig().netId();
+        uint32_t ownSysId = m_network->p25RoamingConfig().sysId();
+        std::unordered_map<uint32_t, std::vector<SuidRegistrationTable::Entry>> foreignByPeer;
+        for (const SuidRegistrationTable::Entry& entry : m_network->m_suidRegistrations.snapshot()) {
+            if (entry.talkgroup != 0U) {
+                foreignByPeer[entry.peerId].push_back(entry);
+            }
+        }
+
         if (m_network->peerCount() > 0U) {
             std::vector<uint32_t> peerIds = std::vector<uint32_t>();
 
@@ -2678,6 +2718,25 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
                             json::object affObj = json::object();
                             affObj["srcId"].set<uint32_t>(srcId);
                             affObj["dstId"].set<uint32_t>(dstId);
+                            affObj["netId"].set<uint32_t>(ownNetId);
+                            affObj["sysId"].set<uint32_t>(ownSysId);
+                            peerAffs.push_back(json::value(affObj));
+                        }
+                    }
+
+                    auto foreign = foreignByPeer.find(peerId);
+                    if (foreign != foreignByPeer.end()) {
+                        for (const SuidRegistrationTable::Entry& entry : foreign->second) {
+                            uint32_t srcId = entry.suid.unitId;
+                            uint32_t dstId = entry.talkgroup;
+                            uint32_t netId = entry.suid.netId;
+                            uint32_t sysId = entry.suid.sysId;
+
+                            json::object affObj = json::object();
+                            affObj["srcId"].set<uint32_t>(srcId);
+                            affObj["dstId"].set<uint32_t>(dstId);
+                            affObj["netId"].set<uint32_t>(netId);
+                            affObj["sysId"].set<uint32_t>(sysId);
                             peerAffs.push_back(json::value(affObj));
                         }
                     }
@@ -2694,6 +2753,126 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
 
     response["affiliations"].set<json::array>(affs);
     reply.payload(response);
+}
+
+/* REST API endpoint; implements get P25 roaming home location table request. */
+
+void RESTAPI::restAPI_GetP25RoamingLocations(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    json::array locations = json::array();
+    if (m_network != nullptr) {
+        const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        for (const RoamingService::HomeRecord& rec : m_network->roaming()->homeRecords()) {
+            uint32_t netId = rec.suid.netId;
+            uint32_t sysId = rec.suid.sysId;
+            uint32_t unitId = rec.suid.unitId;
+            uint32_t servingNetId = rec.serving.netId;
+            uint32_t servingSysId = rec.serving.sysId;
+            uint32_t servingRfssId = rec.serving.rfssId;
+            uint32_t peerId = rec.link.peerId;
+            bool upstream = rec.link.upstream;
+            uint32_t expiresIn = (rec.expiresAtMs > now) ? (uint32_t)((rec.expiresAtMs - now) / 1000U) : 0U;
+
+            json::object obj = json::object();
+            obj["netId"].set<uint32_t>(netId);
+            obj["sysId"].set<uint32_t>(sysId);
+            obj["unitId"].set<uint32_t>(unitId);
+            obj["servingNetId"].set<uint32_t>(servingNetId);
+            obj["servingSysId"].set<uint32_t>(servingSysId);
+            obj["servingRfssId"].set<uint32_t>(servingRfssId);
+            obj["peerId"].set<uint32_t>(peerId);
+            obj["upstream"].set<bool>(upstream);
+            obj["expiresIn"].set<uint32_t>(expiresIn);
+            locations.push_back(json::value(obj));
+        }
+    }
+
+    response["locations"].set<json::array>(locations);
+    reply.payload(response);
+}
+
+/* REST API endpoint; implements get P25 served roamers request. */
+
+void RESTAPI::restAPI_GetP25RoamingServed(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    json::array served = json::array();
+    if (m_network != nullptr) {
+        for (const RoamingService::ServingRecord& rec : m_network->roaming()->servingRecords()) {
+            uint32_t netId = rec.suid.netId;
+            uint32_t sysId = rec.suid.sysId;
+            uint32_t unitId = rec.suid.unitId;
+            uint32_t peerId = rec.link.peerId;
+            bool upstream = rec.link.upstream;
+
+            json::object obj = json::object();
+            obj["netId"].set<uint32_t>(netId);
+            obj["sysId"].set<uint32_t>(sysId);
+            obj["unitId"].set<uint32_t>(unitId);
+            obj["peerId"].set<uint32_t>(peerId);
+            obj["upstream"].set<bool>(upstream);
+            served.push_back(json::value(obj));
+        }
+    }
+
+    response["served"].set<json::array>(served);
+    reply.payload(response);
+}
+
+/* REST API endpoint; implements put P25 roaming Forced query request. */
+
+void RESTAPI::restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object req = json::object();
+    if (!parseRequestBody(request, reply, req)) {
+        return;
+    }
+
+    errorPayload(reply, "OK", HTTPPayload::OK);
+
+    if (!req["netId"].is<uint32_t>() || !req["sysId"].is<uint32_t>() || !req["unitId"].is<uint32_t>()) {
+        errorPayload(reply, "netId, sysId and unitId must be valid integers");
+        return;
+    }
+
+    roaming::SUID suid;
+    suid.netId = req["netId"].get<uint32_t>();
+    suid.sysId = req["sysId"].get<uint32_t>();
+    suid.unitId = req["unitId"].get<uint32_t>();
+    if (!suid.valid()) {
+        errorPayload(reply, "netId, sysId or unitId out of range");
+        return;
+    }
+
+    if (m_network == nullptr) {
+        errorPayload(reply, "network is not available");
+        return;
+    }
+
+    // the home sends Forced queries only on operator request (spec 4.5)
+    LogInfoEx(LOG_REST, "P25 ROAMING, operator Forced query, suid = $%05X.$%03X.%u", suid.netId, suid.sysId, suid.unitId);
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if (!m_network->roaming()->forcedQuery(suid, now)) {
+        errorPayload(reply, "SUID has no home location record");
+        return;
+    }
 }
 
 /* REST API endpoint; implements get talkgroup grant list request. */

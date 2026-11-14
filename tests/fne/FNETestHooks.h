@@ -475,6 +475,15 @@ public:
     static uint32_t findSuidRoute(network::TrafficNetwork& network, const network::roaming::SUID& suid);
 
     /**
+     * @brief Registers and affiliates a foreign SU behind a peer.
+     * @param network The TrafficNetwork instance.
+     * @param peerId Peer ID.
+     * @param suid Foreign SUID.
+     * @param talkgroup Local talkgroup ID.
+     */
+    static void addSuidAffiliation(network::TrafficNetwork& network, uint32_t peerId, const network::roaming::SUID& suid, uint32_t talkgroup);
+
+    /**
      * @brief Passes an encoded KMM through the FNE OTAR message dispatcher.
      * @param network The TrafficNetwork that owns the OTAR service.
      * @param packet Encoded KMM bytes.

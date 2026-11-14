@@ -1539,9 +1539,13 @@ X-DVM-Auth-Token: {token}
 **Response Fields:**
 - `totalUnits`: Count of registered units returned
 - `units[]`: Flat array of registered source IDs
+- `netId`: P25 WACN of this system (0 when roaming is not configured)
+- `sysId`: P25 System ID of this system (0 when roaming is not configured)
+- `suidUnits[]`: Foreign (roaming) units registered behind a peer, each with `unitId`, `netId`, `sysId` (the unit's home WACN and System ID) and `peerId`
 
 **Notes:**
 - Data is sourced from the global affiliation/unit registration table maintained by `TrafficNetwork`
+- `units[]` holds bare unit IDs of this system; foreign units are reported only in `suidUnits[]`
 
 ---
 
@@ -1600,6 +1604,8 @@ X-DVM-Auth-Token: {token}
 - Affiliations are grouped by peer ID
 - Each peer may have multiple radio affiliations
 - Empty peers (no affiliations) are not included in the response
+
+**Roaming Fields:** Each entry of `affiliations[]` also carries `netId` and `sysId`. Local units report this system's values; foreign (roaming) units appear in the list of the peer they are behind and report their home values.
 
 ---
 
@@ -1873,6 +1879,102 @@ Content-Type: application/json
 - Radio must be registered on the P25 system
 - The `dyn-regrp` command requires the `tgId` parameter to specify target talkgroup
 - No `slot` parameter is used for P25 (unlike DMR)
+
+---
+
+#### 10.2.2 Endpoint: GET /p25/roaming/locations
+
+**Method:** `GET`
+
+**Description:** Home location table for this system's SUs served by another system (TIA-102.BACA-B 5.5.1).
+
+**Request Headers:**
+```
+X-DVM-Auth-Token: {token}
+```
+
+**Response:**
+```json
+{
+  "status": 200,
+  "locations": [
+    {
+      "netId": 912896,
+      "sysId": 2321,
+      "unitId": 1000000,
+      "servingNetId": 912896,
+      "servingSysId": 315,
+      "servingRfssId": 1,
+      "peerId": 2001,
+      "upstream": false,
+      "expiresIn": 17999
+    }
+  ]
+}
+```
+
+**Response Fields:**
+- `netId`, `sysId`, `unitId`: Home SUID of the roamer
+- `servingNetId`, `servingSysId`, `servingRfssId`: Serving RFSS identity
+- `peerId`: Link toward the serving RFSS
+- `upstream`: True if that link is an upstream master link
+- `expiresIn`: Seconds until the record expires
+
+---
+
+#### 10.2.3 Endpoint: GET /p25/roaming/served
+
+**Method:** `GET`
+
+**Description:** Roaming SUs from other systems registered behind this FNE.
+
+**Request Headers:**
+```
+X-DVM-Auth-Token: {token}
+```
+
+**Response:**
+```json
+{
+  "status": 200,
+  "served": [
+    {
+      "netId": 912896,
+      "sysId": 546,
+      "unitId": 5,
+      "peerId": 1001,
+      "upstream": false
+    }
+  ]
+}
+```
+
+---
+
+#### 10.2.4 Endpoint: PUT /p25/roaming/query
+
+**Method:** `PUT`
+
+**Description:** Sends a Forced query for one of this system's SUs to its serving system; the serving host commands the SU to re-register and deregisters it if it does not.
+
+**Request Headers:**
+```
+Content-Type: application/json
+X-DVM-Auth-Token: {token}
+```
+
+**Request Body:**
+```json
+{
+  "netId": 912896,
+  "sysId": 2321,
+  "unitId": 1000000
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: `netId`, `sysId` or `unitId` is missing, not an integer, or out of range
+- `400 Bad Request`: The SUID has no home location record
 
 ---
 
@@ -2443,6 +2545,9 @@ if __name__ == "__main__":
 | GET | /spanning-tree | Get network topology | Yes |
 | PUT | /dmr/rid | DMR radio operations | Yes |
 | PUT | /p25/rid | P25 radio operations | Yes |
+| GET | /p25/roaming/locations | P25 roaming home location table | Yes |
+| GET | /p25/roaming/served | P25 served roamers | Yes |
+| PUT | /p25/roaming/query | P25 roaming Forced query | Yes |
 
 ---
 
