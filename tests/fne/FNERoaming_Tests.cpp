@@ -505,7 +505,38 @@ TEST_CASE("FNE accepts SUID announcements only from roaming-capable peers", "[fn
     REQUIRE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
     CHECK(entry.talkgroup == 4001U);
 
-    // peer teardown removes the peer's foreign units
+    // peer teardown removes the peer's foreign units and their routes
+    REQUIRE(FNETestHooks::findSuidRoute(harness.traffic, roamer) == 2001U);
     FNETestHooks::teardownPeer(harness.traffic, 2001U);
     CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, roamer) == 0U);
+}
+
+TEST_CASE("FNE peer teardown clears foreign SUID routes when the peer has no affiliation lookup", "[fne][roaming][suid][announce]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+
+    // addPeer() stores a connection only, so the peer has no affiliation lookup at teardown
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    FNETestHooks::addPeer(harness.traffic, 2002U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+
+    const SUID roamer = { 0xDEE00U, 0x911U, 0x0F4240U };
+    const SUID other = { 0xDEE00U, 0x911U, 0x000001U };
+    const std::vector<uint8_t> unitBytes = { 0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+    const std::vector<uint8_t> otherBytes = { 0x00U, 0x00U, 0x01U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+    FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+        network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, 2001U, unitBytes);
+    FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+        network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, 2002U, otherBytes);
+    REQUIRE(FNETestHooks::findSuidRoute(harness.traffic, roamer) == 2001U);
+    REQUIRE(FNETestHooks::findSuidRoute(harness.traffic, other) == 2002U);
+
+    FNETestHooks::teardownPeer(harness.traffic, 2001U);
+    SuidRegistrationTable::Entry entry;
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, roamer) == 0U);
+
+    // another peer's foreign route is untouched
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, other) == 2002U);
 }

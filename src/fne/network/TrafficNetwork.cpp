@@ -2279,8 +2279,12 @@ void TrafficNetwork::erasePeer(uint32_t peerId)
         logSpanningTree();
     }
 
-    // cleanup foreign (SUID) registrations; erasePeerAffiliations() also removes this peer's unit routes
-    m_suidRegistrations.erasePeer(peerId);
+    // cleanup foreign (SUID) registrations and their routes; erasePeerAffiliations() only removes this peer's own
+    // (bare Unit ID) routes, and only when the peer has an affiliation lookup
+    const std::vector<roaming::SUID> foreignUnits = m_suidRegistrations.erasePeer(peerId);
+    for (const roaming::SUID& suid : foreignUnits) {
+        m_unitRouteRegistry.eraseSuid(suid, peerId);
+    }
 
     // cleanup peer affiliations
     erasePeerAffiliations(peerId);
