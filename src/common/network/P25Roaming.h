@@ -479,6 +479,16 @@ namespace network
              */
             static bool decodeGrantSource(const uint8_t* buffer, uint32_t length, uint32_t& netId, uint32_t& sysId);
 
+            /**
+             * @brief Reads an untrusted JSON number as an exact unsigned 32-bit integer.
+             * @param object JSON object holding the field.
+             * @param[in] key Field name.
+             * @param required Flag indicating a missing field is an error; otherwise it reads as 0.
+             * @param[out] value Field value; 0 when the field is absent.
+             * @returns bool True if absent (and not required) or a non-negative, integral number no greater than 4294967295; otherwise, false.
+             */
+            static bool readConfigNumber(const json::object& object, const char* key, bool required, uint32_t& value);
+
         private:
             /**
              * @brief Writes one SUID announcement entry.
@@ -497,15 +507,6 @@ namespace network
              * @returns bool True if the WACN ID and System ID are in range; otherwise, false.
              */
             static bool readAnnouncementEntry(bool withTalkgroup, const uint8_t* buffer, uint32_t offset, SuidAnnouncement& entry);
-            /**
-             * @brief Reads an untrusted JSON number as an exact unsigned 32-bit integer.
-             * @param object JSON object holding the field.
-             * @param[in] key Field name.
-             * @param required Flag indicating a missing field is an error; otherwise it reads as 0.
-             * @param[out] value Field value; 0 when the field is absent.
-             * @returns bool True if absent (and not required) or a non-negative, integral number no greater than 4294967295; otherwise, false.
-             */
-            static bool readConfigNumber(const json::object& object, const char* key, bool required, uint32_t& value);
             /**
              * @brief Writes a SUID field group.
              * @param suid SUID to write.

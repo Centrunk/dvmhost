@@ -2847,15 +2847,15 @@ void RESTAPI::restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload
 
     errorPayload(reply, "OK", HTTPPayload::OK);
 
-    if (!req["netId"].is<uint32_t>() || !req["sysId"].is<uint32_t>() || !req["unitId"].is<uint32_t>()) {
+    // untrusted JSON numbers are range-checked as doubles before any integer conversion
+    roaming::SUID suid;
+    if (!roaming::RoamingCodec::readConfigNumber(req, "netId", true, suid.netId) ||
+        !roaming::RoamingCodec::readConfigNumber(req, "sysId", true, suid.sysId) ||
+        !roaming::RoamingCodec::readConfigNumber(req, "unitId", true, suid.unitId)) {
         errorPayload(reply, "netId, sysId and unitId must be valid integers");
         return;
     }
 
-    roaming::SUID suid;
-    suid.netId = req["netId"].get<uint32_t>();
-    suid.sysId = req["sysId"].get<uint32_t>();
-    suid.unitId = req["unitId"].get<uint32_t>();
     if (!suid.valid()) {
         errorPayload(reply, "netId, sysId or unitId out of range");
         return;
@@ -2867,12 +2867,14 @@ void RESTAPI::restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload
     }
 
     // the home sends Forced queries only on operator request (spec 4.5)
-    LogInfoEx(LOG_REST, "P25 ROAMING, operator Forced query, suid = $%05X.$%03X.%u", suid.netId, suid.sysId, suid.unitId);
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (!m_network->roaming()->forcedQuery(suid, now)) {
+        LogWarning(LOG_REST, "P25 ROAMING, operator Forced query rejected, suid = $%05X.$%03X.%u, no home location record", suid.netId, suid.sysId, suid.unitId);
         errorPayload(reply, "SUID has no home location record");
         return;
     }
+
+    LogInfoEx(LOG_REST, "P25 ROAMING, operator Forced query sent, suid = $%05X.$%03X.%u", suid.netId, suid.sysId, suid.unitId);
 }
 
 /* REST API endpoint; implements get talkgroup grant list request. */

@@ -9,6 +9,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "common/edac/SHA256.h"
 #include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/RadioIdLookup.h"
 #include "common/lookups/AdjSiteMapLookup.h"
@@ -98,6 +99,85 @@ namespace {
             payload, response, false, 1000, false) == HTTPPayload::OK);
         REQUIRE(response["status"].get<int>() == HTTPPayload::OK);
         return response;
+    }
+
+    /**
+     * @brief Result of a raw HTTP exchange with the REST server.
+     */
+    struct RawResponse {
+        int httpStatus = 0;                             //!< HTTP status code of the response line.
+        json::object body;                              //!< Parsed JSON response body.
+    };
+
+    /**
+     * @brief Sends one raw HTTP request, allowing an arbitrary (possibly malformed) body.
+     * @param port The port on which the REST API server is running.
+     * @param method The HTTP method.
+     * @param endpoint The REST API endpoint.
+     * @param token Authentication token, or empty for none.
+     * @param content Raw request body.
+     * @returns RawResponse The HTTP status and parsed JSON body.
+     */
+    RawResponse sendRaw(uint16_t port, const std::string& method, const std::string& endpoint,
+        const std::string& token, const std::string& content)
+    {
+        asio::io_service ioService;
+        asio::ip::tcp::socket socket(ioService);
+        socket.connect(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), port));
+
+        std::string request = method + " " + endpoint + " HTTP/1.1\r\nHost: 127.0.0.1\r\n";
+        if (!token.empty())
+            request += "X-DVM-Auth-Token: " + token + "\r\n";
+        request += "Content-Type: application/json\r\nContent-Length: " + std::to_string(content.size()) + "\r\n\r\n" + content;
+        asio::write(socket, asio::buffer(request));
+
+        asio::streambuf buffer;
+        asio::read_until(socket, buffer, "\r\n\r\n");
+        std::istream stream(&buffer);
+
+        RawResponse result;
+        std::string line;
+        std::getline(stream, line);
+        REQUIRE(line.compare(0U, 9U, "HTTP/1.0 ") == 0);
+        result.httpStatus = std::stoi(line.substr(9U, 3U));
+
+        size_t length = 0U;
+        while (std::getline(stream, line) && line != "\r") {
+            if (line.compare(0U, 15U, "Content-Length:") == 0)
+                length = std::stoul(line.substr(15U));
+        }
+
+        std::string body((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        if (body.size() < length) {
+            std::string rest(length - body.size(), '\0');
+            asio::read(socket, asio::buffer(&rest[0], rest.size()));
+            body += rest;
+        }
+
+        json::value value;
+        REQUIRE(json::parse(value, body).empty());
+        result.body = value.get<json::object>();
+        return result;
+    }
+
+    /**
+     * @brief Authenticates against the REST server over a raw socket.
+     * @param port The port on which the REST API server is running.
+     * @returns std::string Authentication token.
+     */
+    std::string authenticateRaw(uint16_t port)
+    {
+        uint8_t hash[32U];
+        edac::SHA256 sha256;
+        sha256.buffer(reinterpret_cast<const uint8_t*>(TEST_PASSWORD.data()), static_cast<uint32_t>(TEST_PASSWORD.size()), hash);
+
+        char hex[65U];
+        for (uint32_t i = 0U; i < 32U; i++)
+            ::snprintf(hex + (i * 2U), 3U, "%02x", hash[i]);
+
+        RawResponse rsp = sendRaw(port, HTTP_PUT, "/auth", "", std::string("{\"auth\":\"") + hex + "\"}");
+        REQUIRE(rsp.httpStatus == 200);
+        return rsp.body["token"].get<std::string>();
     }
 
     /**
@@ -594,6 +674,8 @@ TEST_CASE("FNE REST reports P25 roaming locations and served roamers and starts 
     CHECK(sawLocal);
     CHECK(sawForeign);
 
+    // a valid Forced query is actually issued: a pending transaction toward the serving link is created
+    const size_t pendingBefore = traffic.roaming()->pendingCount();
     uint32_t queryNetId = 0xDEE00U;
     uint32_t querySysId = 0x911U;
     uint32_t queryUnitId = 0x0F4240U;
@@ -602,11 +684,44 @@ TEST_CASE("FNE REST reports P25 roaming locations and served roamers and starts 
     query["sysId"].set<uint32_t>(querySysId);
     query["unitId"].set<uint32_t>(queryUnitId);
     sendRequest(port, HTTP_PUT, FNE_PUT_P25_ROAMING_QUERY, query);
+    CHECK(traffic.roaming()->pendingCount() == pendingBefore + 1U);
+
+    // validation failures are rejected with 400 and a specific message, and issue nothing
+    const std::string token = authenticateRaw(port);
+    const size_t pendingAfter = traffic.roaming()->pendingCount();
+    const std::string numberMessage = "netId, sysId and unitId must be valid integers";
+    const std::string rangeMessage = "netId, sysId or unitId out of range";
+    auto expectRejected = [&](const std::string& body, const std::string& message) {
+        INFO(body);
+        RawResponse rsp = sendRaw(port, HTTP_PUT, FNE_PUT_P25_ROAMING_QUERY, token, body);
+        // the FNE REST contract reports errors in the JSON status/message (the HTTP envelope stays 200)
+        CHECK(rsp.body["status"].get<int>() == 400);
+        CHECK(rsp.body["message"].get<std::string>() == message);
+    };
+
+    {
+        // malformed JSON is rejected by the shared body parser before any field is read
+        INFO("malformed body");
+        RawResponse rsp = sendRaw(port, HTTP_PUT, FNE_PUT_P25_ROAMING_QUERY, token, "{\"netId\": ");
+        CHECK(rsp.body["status"].get<int>() == 400);
+        CHECK_FALSE(rsp.body["message"].get<std::string>().empty());
+    }
+
+    expectRejected("[1,2,3]", "Request was not a valid JSON object.");
+    expectRejected("{\"sysId\":2321,\"unitId\":1000000}", numberMessage);
+    expectRejected("{\"netId\":912896,\"unitId\":1000000}", numberMessage);
+    expectRejected("{\"netId\":912896,\"sysId\":2321}", numberMessage);
+    expectRejected("{\"netId\":\"912896\",\"sysId\":2321,\"unitId\":1000000}", numberMessage);
+    expectRejected("{\"netId\":912896,\"sysId\":true,\"unitId\":1000000}", numberMessage);
+    expectRejected("{\"netId\":912896,\"sysId\":2321,\"unitId\":-1}", numberMessage);
+    expectRejected("{\"netId\":912896,\"sysId\":2321,\"unitId\":1.5}", numberMessage);
+    // 4294967296 + 0xDEE00 would wrap to a valid WACN if cast without a range check
+    expectRejected("{\"netId\":4295880192,\"sysId\":2321,\"unitId\":1000000}", numberMessage);
+    expectRejected("{\"netId\":1048576,\"sysId\":2321,\"unitId\":1000000}", rangeMessage);
+    expectRejected("{\"netId\":912896,\"sysId\":4096,\"unitId\":1000000}", rangeMessage);
+    expectRejected("{\"netId\":912896,\"sysId\":2321,\"unitId\":16777216}", rangeMessage);
 
     // no home location record for this SUID
-    uint32_t unknownUnitId = 99U;
-    query["unitId"].set<uint32_t>(unknownUnitId);
-    json::object response = json::object();
-    RESTClient::send("127.0.0.1", port, TEST_PASSWORD, HTTP_PUT, FNE_PUT_P25_ROAMING_QUERY, query, response, false, 1000, false);
-    CHECK(response["status"].get<int>() != HTTPPayload::OK);
+    expectRejected("{\"netId\":912896,\"sysId\":2321,\"unitId\":99}", "SUID has no home location record");
+    CHECK(traffic.roaming()->pendingCount() == pendingAfter);
 }
