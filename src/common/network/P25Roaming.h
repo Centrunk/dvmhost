@@ -193,7 +193,7 @@ namespace network
                 OK = 0U,                                //!< Decoded
                 MALFORMED_LENGTH = 1U,                  //!< Length does not match the sub-function
                 BAD_VERSION = 2U,                       //!< Version is not ROAM_VERSION
-                OUT_OF_RANGE = 3U,                      //!< WACN ID or System ID out of range
+                OUT_OF_RANGE = 3U,                      //!< WACN ID, System ID, access or flags out of range
                 UNKNOWN_SUBFUNC = 4U                    //!< Sub-function is not a known ROAMING sub-function
             };
         }

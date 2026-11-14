@@ -168,6 +168,13 @@ namespace p25
              */
             bool isEmergencyOnly(const network::roaming::SUID& suid) const;
             /**
+             * @brief Gets the service profile the home returned for a roamer registered here.
+             * @param suid Roaming SUID.
+             * @param[out] profile Stored service profile when the SU is held.
+             * @returns bool True if held as a roamer; otherwise, false.
+             */
+            bool roamerProfile(const network::roaming::SUID& suid, Profile& profile) const;
+            /**
              * @brief Gets every roamer registered here through its home.
              * @returns std::vector<network::roaming::SUID> Roamer SUIDs.
              */

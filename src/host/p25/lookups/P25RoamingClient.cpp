@@ -238,6 +238,24 @@ bool P25RoamingClient::isEmergencyOnly(const SUID& suid) const
     return it != m_roamers.end() && it->second.profile.access == RoamAccess::EMERGENCY_ONLY;
 }
 
+/* Gets the service profile the home returned for a roamer registered here. */
+
+bool P25RoamingClient::roamerProfile(const SUID& suid, Profile& profile) const
+{
+    if (!suid.valid()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_roamers.find(suid.pack());
+    if (it == m_roamers.end()) {
+        return false;
+    }
+
+    profile = it->second.profile;
+    return true;
+}
+
 /* Gets every roamer registered here through its home. */
 
 std::vector<SUID> P25RoamingClient::roamers() const

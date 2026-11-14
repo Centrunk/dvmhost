@@ -231,6 +231,12 @@ RoamDecode::E RoamingCodec::decode(uint8_t subFunc, const uint8_t* data, uint32_
         out.expires = GET_UINT32(data, 15U);
         out.access = data[19U];
         out.flags = data[20U];
+
+        // access is 0 none, 1 full or 2 emergency only, and only flags bit 7 (radio inhibited) is defined; an
+        //  undefined value must not be read as a grant of service
+        if (out.access > RoamAccess::EMERGENCY_ONLY || (out.flags | ROAM_FLAG_RADIO_INHIBITED) != ROAM_FLAG_RADIO_INHIBITED) {
+            return RoamDecode::OUT_OF_RANGE;
+        }
         break;
     case NET_SUBFUNC::ROAM_SERVING_DEREG:
         if (!readRfss(data, 14U, out.serving)) {

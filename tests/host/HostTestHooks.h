@@ -423,6 +423,17 @@ public:
      */
     static void p25SetAckTSBKRequests(p25::Control& control, bool ack);
     /**
+     * @brief Applies a Serving Registration outcome on air as the roaming client's outcome callback does.
+     * @param control P25 controller.
+     * @param suid Roaming SUID.
+     * @param outcome Outcome.
+     * @param profile Service profile from the home.
+     * @param onAir Flag indicating an SU request is waiting for an on-air answer.
+     * @returns bool True if the SU is admitted locally; otherwise, false.
+     */
+    static bool p25ProcessRoamingOutcome(p25::Control& control, const network::roaming::SUID& suid,
+        p25::lookups::P25RoamingClient::Outcome outcome, const p25::lookups::P25RoamingClient::Profile& profile, bool onAir);
+    /**
      * @brief Writes an RF voice LDU1 to the network using the given link control.
      * @param control P25 controller.
      * @param lc Link control to place in the RF voice state.

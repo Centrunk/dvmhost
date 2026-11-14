@@ -596,7 +596,8 @@ public:
         m_bulkAnnounceCount(0U),
         m_voiceWriteCount(0U),
         m_pduWriteCount(0U),
-        m_roamingWrites()
+        m_roamingWrites(),
+        m_announcedSuids()
     {
         // keep protocol gates deterministic for this P25-focused harness
         m_dmrEnabled = false;
@@ -835,6 +836,17 @@ public:
     }
 
     /**
+     * @brief Records a roaming SU's unit registration announcement by SUID before sending it.
+     * @param suid Roaming SUID.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitRegistrationSUID(const network::roaming::SUID& suid) override
+    {
+        m_announcedSuids.push_back(suid);
+        return network::Network::announceUnitRegistrationSUID(suid);
+    }
+
+    /**
      * @brief Records a unit de-registration announcement before sending it.
      * @param srcId Source radio ID.
      * @returns bool True, if the announcement was sent; otherwise, false.
@@ -980,6 +992,9 @@ public:
     /** @brief Gets the captured ROAMING writes. */
     const std::vector<RoamingWrite>& roamingWrites() const { return m_roamingWrites; }
 
+    /** @brief Gets every SUID carried by a unit registration announcement by SUID. */
+    const std::vector<network::roaming::SUID>& announcedSuids() const { return m_announcedSuids; }
+
 private:
     uint32_t m_resetP25Count;
     uint8_t m_lastTSDUControlByte;
@@ -990,6 +1005,7 @@ private:
     uint32_t m_voiceWriteCount;
     uint32_t m_pduWriteCount;
     std::vector<RoamingWrite> m_roamingWrites;
+    std::vector<network::roaming::SUID> m_announcedSuids;
 };
 
 // ---------------------------------------------------------------------------
@@ -3342,6 +3358,174 @@ TEST_CASE("P25 roaming Serving Registration through the home system", "[p25][hos
         CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_ACK_RSP) != nullptr);
         CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG) == nullptr);
         CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 1U);
+
+        // an immediate FAILED answer (no roaming link) still follows the ACK_RSP_FNE in the same pass
+        harness.network()->deactivateRoamingForTest();
+        buildUnitRegRequest(0xBB800U, 0x002U, 1002U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        tsbks = drainTSBKs(*harness.m_control);
+        // immediate TSDUs are queued redundantly, so compare the first occurrence of each
+        REQUIRE_FALSE(tsbks.empty());
+        CHECK((tsbks.front()[0U] & 0x3FU) == p25::defines::TSBKO::IOSP_ACK_RSP);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+    }
+
+    SECTION("Locally_Denied_Roamer_Is_Answered_As_Before") {
+        prepareMobility(harness);
+        HostTestHooks::p25SetAckTSBKRequests(*harness.m_control, false);
+
+        // home System ID not permitted: REG_DENY only, with no ACK_RSP_FNE while ackRequests is off
+        prepareRoaming(harness, true, { 0x003U }, 9000010U, false);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_ACK_RSP) == nullptr);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+
+        // roaming WUID pool exhausted: likewise REG_DENY only
+        prepareRoaming(harness, true, {}, 9000000U, false);
+        const p25::lookups::P25WuidLookup::SUID other = { 0xBB800U, 0x002U, 2002U };
+        REQUIRE(HostTestHooks::p25WuidLookup(*harness.m_control)->allocate(other) == 9000000U);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        tsbks = drainTSBKs(*harness.m_control);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_ACK_RSP) == nullptr);
+        rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+
+        // with ackRequests on, a locally denied roamer is acknowledged as before this change
+        HostTestHooks::p25SetAckTSBKRequests(*harness.m_control, true);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        tsbks = drainTSBKs(*harness.m_control);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_ACK_RSP) != nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG) != nullptr);
+        CHECK(harness.network()->roamingWrites().empty());
+    }
+
+    SECTION("Home_Answers_Use_The_Standard_MFID") {
+        prepareMobility(harness);
+
+        // the last RF TSBK may carry another SU's MFID; an answer from the home must not inherit it
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        HostTestHooks::p25SetLastMFId(*harness.m_control, p25::defines::MFG_MOT);
+        answerServingRegistration(harness, RoamResult::SUCCESS, RoamAccess::FULL, ROAM_FLAG_RADIO_INHIBITED);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((*rsp)[1U] == p25::defines::MFG_STANDARD);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        const std::vector<uint8_t>* ext = findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT);
+        REQUIRE(ext != nullptr);
+        CHECK((*ext)[1U] == p25::defines::MFG_STANDARD);
+
+        // a home failure code
+        buildUnitRegRequest(0xBB800U, 0x002U, 1002U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        HostTestHooks::p25SetLastMFId(*harness.m_control, p25::defines::MFG_MOT);
+        answerServingRegistration(harness, RoamResult::MME_SU_REG_DISALLOWED);
+        tsbks = drainTSBKs(*harness.m_control);
+        rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((*rsp)[1U] == p25::defines::MFG_STANDARD);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+
+        // a FAILED outcome admitted unverified
+        HostTestHooks::p25SetRoamingAllowUnverified(*harness.m_control, true);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1003U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        HostTestHooks::p25SetLastMFId(*harness.m_control, p25::defines::MFG_MOT);
+        HostTestHooks::p25ClockU2U(*harness.m_control, ROAM_DEFAULT_HOME_TIMEOUT_MS);
+        tsbks = drainTSBKs(*harness.m_control);
+        rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((*rsp)[1U] == p25::defines::MFG_STANDARD);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::FAIL);
+    }
+
+    SECTION("Undefined_Access_Is_Treated_As_No_Access") {
+        prepareMobility(harness);
+        p25::lookups::P25RoamingClient::Profile profile;
+        profile.result = RoamResult::SUCCESS;
+        profile.access = 0x03U;
+        profile.expires = ROAM_DEFAULT_EXPIRES;
+        CHECK_FALSE(HostTestHooks::p25ProcessRoamingOutcome(*harness.m_control, roamer,
+            p25::lookups::P25RoamingClient::Outcome::SUCCESS, profile, true));
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+
+        // an undefined access value from the network never reaches the host: the codec drops it and the request
+        //  completes as FAILED (REG_DENY by default) when roamingHomeTimeout expires
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        const RoamingMessage reg = lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG);
+        RoamingMessage answer;
+        answer.subFunc = network::NET_SUBFUNC::ROAM_SERVING_REG_RSP;
+        answer.txnId = reg.txnId;
+        answer.suid = reg.suid;
+        answer.result = RoamResult::SUCCESS;
+        answer.expires = ROAM_DEFAULT_EXPIRES;
+        answer.access = RoamAccess::FULL;
+        uint8_t buffer[MSG_ROAM_MAX_LEN];
+        const uint32_t length = RoamingCodec::encode(answer, buffer, sizeof(buffer));
+        REQUIRE(length == MSG_ROAM_MAX_LEN);
+        buffer[19U] = 0x03U;                                                        // access
+        harness.network()->injectRoamingForTest(answer.subFunc, std::vector<uint8_t>(buffer, buffer + length));
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::IOSP_U_REG) == nullptr);
+        CHECK(HostTestHooks::p25RoamingClient(*harness.m_control)->isPending(roamer));
+        HostTestHooks::p25ClockU2U(*harness.m_control, ROAM_DEFAULT_HOME_TIMEOUT_MS);
+        tsbks = drainTSBKs(*harness.m_control);
+        rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+    }
+
+    SECTION("Held_Inhibited_Roamer_Is_Inhibited_Again_On_Reaccept") {
+        prepareMobility(harness);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        answerServingRegistration(harness, RoamResult::SUCCESS, RoamAccess::EMERGENCY_ONLY, ROAM_FLAG_RADIO_INHIBITED);
+        drainTSBKs(*harness.m_control);
+        const size_t announced = harness.network()->announcedSuids().size();
+        CHECK(announced == 1U);
+
+        // the link is down, so the held roamer is re-accepted from its stored profile (AABD 13.3)
+        harness.network()->deactivateRoamingForTest();
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        size_t accept = tsbks.size();
+        size_t inhibit = tsbks.size();
+        for (size_t i = 0U; i < tsbks.size(); i++) {
+            if ((tsbks[i][0U] & 0x3FU) == p25::defines::TSBKO::IOSP_U_REG && accept == tsbks.size()) {
+                accept = i;
+            }
+            if ((tsbks[i][0U] & 0x3FU) == p25::defines::TSBKO::IOSP_EXT_FNCT && inhibit == tsbks.size()) {
+                inhibit = i;
+            }
+        }
+        REQUIRE(accept < tsbks.size());
+        REQUIRE(inhibit < tsbks.size());
+        CHECK(accept < inhibit);
+        CHECK(((tsbks[accept][2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK(getUint24(tsbks[accept].data(), 7U) == 9000000U);
+        CHECK(tsbks[inhibit][1U] == p25::defines::MFG_STANDARD);
+        CHECK(tsbks[inhibit][3U] == 0x7FU);
+        CHECK(getUint24(tsbks[inhibit].data(), 7U) == 9000000U);
+        CHECK(HostTestHooks::p25RoamingClient(*harness.m_control)->isEmergencyOnly(roamer));
+        REQUIRE(harness.network()->announcedSuids().size() == announced + 1U);
+        CHECK(harness.network()->announcedSuids().back() == roamer);
     }
 
     SECTION("Success_Accepts_With_The_Pool_WUID") {

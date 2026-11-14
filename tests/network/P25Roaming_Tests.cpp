@@ -244,6 +244,28 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         CHECK(msg.result == RoamResult::GEN_PROC_UNSUPPORTED);
     }
 
+    SECTION("Serving_Registration_Response_Rejects_Undefined_Access_And_Flags") {
+        // access is 0 none / 1 full / 2 emergency only; only flags bit 7 (radio inhibited) is defined
+        RoamingMessage msg;
+        for (uint8_t access : { 0x00U, 0x01U, 0x02U }) {
+            INFO("access " << (uint32_t)access);
+            const std::vector<uint8_t> ok = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, access, 0x80U } });
+            CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, ok.data(), (uint32_t)ok.size(), msg) == RoamDecode::OK);
+        }
+
+        for (uint8_t access : { 0x03U, 0x7FU, 0xFFU }) {
+            INFO("access " << (uint32_t)access);
+            const std::vector<uint8_t> bad = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, access, 0x00U } });
+            CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, bad.data(), (uint32_t)bad.size(), msg) == RoamDecode::OUT_OF_RANGE);
+        }
+
+        for (uint8_t flags : { 0x01U, 0x40U, 0x7FU, 0x81U, 0xFFU }) {
+            INFO("flags " << (uint32_t)flags);
+            const std::vector<uint8_t> bad = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, 0x01U, flags } });
+            CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, bad.data(), (uint32_t)bad.size(), msg) == RoamDecode::OUT_OF_RANGE);
+        }
+    }
+
     SECTION("Truncation_And_Overlength_Are_Malformed_For_Every_Subfunction") {
         const uint8_t subFuncs[9U] = { NET_SUBFUNC::ROAM_SERVING_REG, NET_SUBFUNC::ROAM_SERVING_REG_RSP,
             NET_SUBFUNC::ROAM_SERVING_DEREG, NET_SUBFUNC::ROAM_SERVING_DEREG_RSP, NET_SUBFUNC::ROAM_HOME_DEREG,

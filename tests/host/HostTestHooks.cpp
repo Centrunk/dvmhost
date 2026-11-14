@@ -632,6 +632,14 @@ void HostTestHooks::p25SetAckTSBKRequests(p25::Control& control, bool ack)
     control.m_ackTSBKRequests = ack;
 }
 
+/* Applies a Serving Registration outcome on air as the roaming client's outcome callback does. */
+
+bool HostTestHooks::p25ProcessRoamingOutcome(p25::Control& control, const network::roaming::SUID& suid,
+    p25::lookups::P25RoamingClient::Outcome outcome, const p25::lookups::P25RoamingClient::Profile& profile, bool onAir)
+{
+    return control.m_control->processRoamingOutcome(suid, outcome, profile, onAir);
+}
+
 /* Writes an RF voice LDU1 to the network using the given link control. */
 
 void HostTestHooks::p25WriteVoiceNetwork(p25::Control& control, const p25::lc::LC& lc)
