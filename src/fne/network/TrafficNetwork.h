@@ -48,6 +48,7 @@
 #include "fne/network/SubscriberOperationStore.h"
 #include "fne/network/UnitRouteRegistry.h"
 #include "fne/network/RoamingConfig.h"
+#include "fne/network/SuidRegistrationTable.h"
 #include "fne/network/HAParameters.h"
 #include "fne/PatchStatusRegistry.h"
 #include "fne/CryptoContainer.h"
@@ -435,6 +436,7 @@ namespace network
         mutable std::mutex m_affiliationUpdateMutex;
         UnitRouteRegistry m_unitRouteRegistry;
         RoamingConfig m_roamingConfig;
+        SuidRegistrationTable m_suidRegistrations;
         SubscriberOperationStore m_subscriberOperations;
         concurrent::shared_unordered_map<uint32_t, std::vector<uint32_t>> m_ccPeerMap;
         static std::timed_mutex s_keyQueueMutex;
@@ -899,6 +901,16 @@ namespace network
          * @param affiliations Complete aggregate source-to-talkgroup affiliation snapshot.
          */
         void publishAggregatedAffiliations(const std::unordered_map<uint32_t, uint32_t>& affiliations);
+        /**
+         * @brief Applies a SUID announcement (spec 3.4) from a roaming-capable peer to the SUID tables.
+         * @param peerId Announcing peer ID.
+         * @param ssrc RTP synchronization source ID.
+         * @param subFunc Announcement sub-function (ANNC_SUBFUNC_*_SUID).
+         * @param[in] data Announcement payload.
+         * @param length Payload length in bytes.
+         * @returns bool True if the announcement was applied; false if dropped.
+         */
+        bool processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uint8_t subFunc, const uint8_t* data, uint32_t length);
         /**
          * @brief Adds one peer unit registration and publishes the aggregate upstream.
          * @param peerId Peer ID.

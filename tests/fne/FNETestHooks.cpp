@@ -1152,6 +1152,22 @@ void FNETestHooks::dispatchMetadata(TrafficNetwork& network, MetadataNetwork& me
     MetadataNetwork::taskNetworkRx(makeRequest(network, &metadata, function, subFunction, peerId, packet));
 }
 
+/* Looks up a foreign (SUID) registration entry. */
+
+bool FNETestHooks::findSuidRegistration(TrafficNetwork& network, const roaming::SUID& suid, SuidRegistrationTable::Entry& entry)
+{
+    return network.m_suidRegistrations.find(suid, entry);
+}
+
+/* Resolves the next-hop peer of a SUID route. */
+
+uint32_t FNETestHooks::findSuidRoute(TrafficNetwork& network, const roaming::SUID& suid)
+{
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return network.m_unitRouteRegistry.resolveSuid(suid, now).peerId;
+}
+
 /* Starts the shared traffic worker pool for ordered-task tests. */
 
 void FNETestHooks::startTrafficWorkerPool(TrafficNetwork& network)

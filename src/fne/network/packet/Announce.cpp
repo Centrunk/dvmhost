@@ -303,6 +303,30 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
             }
         }
         break;
+
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID:       // Announce Foreign Unit Registration (SUID)
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID:     // Announce Foreign Unit Deregistration (SUID)
+    case NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID:      // Announce Foreign Group Affiliation (SUID)
+    case NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID:    // Announce Foreign Group Affiliation Removal (SUID)
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID:      // Announce Update All Foreign Unit Registrations (SUID)
+    case NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID:         // Announce Update All Foreign Affiliations (SUID)
+        {
+            TrafficNetwork::PeerConnectionPtr connection = network->findPeer(peerId);
+            if (peerId > 0 && connection != nullptr) {
+                std::string ip = udp::Socket::address(req->address);
+
+                // validate peer (simple validation really); roaming capability is checked by the network
+                if (connection->connected() && connection->address() == ip && req->length > 0) {
+                    network->processSuidAnnouncement(peerId, ssrc, req->fneHeader.getSubFunction(), req->buffer,
+                        static_cast<uint32_t>(req->length));
+                }
+                else {
+                    network->writePeerNAK(peerId, streamId, TAG_ANNOUNCE, NET_CONN_NAK_FNE_UNAUTHORIZED);
+                }
+            }
+        }
+        break;
+
     default:
         {
             LogWarning(LOG_MASTER, "PEER %u, unknown/unsupported announcement opcode %u", peerId, req->fneHeader.getSubFunction());

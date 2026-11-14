@@ -382,3 +382,130 @@ TEST_CASE("FNE grant requests honor the source system fields", "[fne][roaming][g
     truncated.resize(ROAM_GRANT_REQ_LEN - 1U);
     CHECK(run(truncated).empty());
 }
+
+TEST_CASE("FNE SUID registration table tracks foreign units per peer", "[fne][roaming][suid]")
+{
+    SuidRegistrationTable table;
+    const SUID a = { 0xDEE00U, 0x911U, 0x0F4240U };
+    const SUID b = { 0xDEE00U, 0x911U, 0x000001U };
+    SuidRegistrationTable::Entry entry;
+
+    REQUIRE(table.registerUnit(a, 2001U));
+    REQUIRE(table.find(a, entry));
+    CHECK(entry.peerId == 2001U);
+    CHECK(entry.registered);
+    CHECK_FALSE(table.registerUnit(a, 0U));
+    CHECK_FALSE(table.registerUnit(SUID{ 0x100000U, 0x911U, 1U }, 2001U));
+
+    REQUIRE(table.affiliate(a, 2001U, 4001U));
+    REQUIRE(table.find(a, entry));
+    CHECK(entry.talkgroup == 4001U);
+
+    // a deregistration from another peer is ignored
+    CHECK_FALSE(table.deregisterUnit(a, 2002U));
+    REQUIRE(table.unaffiliate(a, 2001U));
+    REQUIRE(table.find(a, entry));
+    CHECK(entry.talkgroup == 0U);
+    REQUIRE(table.deregisterUnit(a, 2001U));
+    CHECK_FALSE(table.find(a, entry));
+
+    table.registerUnit(a, 2001U);
+    table.registerUnit(b, 2001U);
+    const std::vector<SUID> removed = table.replacePeerRegistrations(2001U, std::vector<SUID>({ a }));
+    REQUIRE(removed.size() == 1U);
+    CHECK(removed[0U] == b);
+    CHECK(table.find(a, entry));
+    CHECK_FALSE(table.find(b, entry));
+
+    SuidAnnouncement aff;
+    aff.suid = a;
+    aff.talkgroup = 4002U;
+    table.replacePeerAffiliations(2001U, std::vector<SuidAnnouncement>({ aff }));
+    REQUIRE(table.find(a, entry));
+    CHECK(entry.talkgroup == 4002U);
+    table.replacePeerAffiliations(2001U, std::vector<SuidAnnouncement>());
+    REQUIRE(table.find(a, entry));
+    CHECK(entry.talkgroup == 0U);
+
+    CHECK(table.erasePeer(2001U).size() == 1U);
+    CHECK(table.snapshot().empty());
+}
+
+TEST_CASE("FNE accepts SUID announcements only from roaming-capable peers", "[fne][roaming][suid][announce]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    FNETestHooks::addPeer(harness.traffic, 2002U, network::NET_STAT_RUNNING, true);
+
+    const SUID roamer = { 0xDEE00U, 0x911U, 0x0F4240U };
+    const std::vector<uint8_t> unitBytes = { 0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+    const std::vector<uint8_t> affilBytes = { 0x0FU, 0x42U, 0x40U, 0x00U, 0x0FU, 0xA1U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+    auto announce = [&](uint32_t peerId, network::NET_SUBFUNC::ENUM subFunc, const std::vector<uint8_t>& payload) {
+        FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE, subFunc, peerId, payload);
+    };
+    SuidRegistrationTable::Entry entry;
+
+    // a peer that did not negotiate roaming is ignored (spec 3.4)
+    announce(2002U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, unitBytes);
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+
+    // malformed lengths change nothing (spec 6)
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, std::vector<uint8_t>(unitBytes.begin(), unitBytes.end() - 1));
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, unitBytes);
+    REQUIRE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(entry.peerId == 2001U);
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, roamer) == 2001U);
+
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, affilBytes);
+    REQUIRE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(entry.talkgroup == 4001U);
+
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID, unitBytes);
+    REQUIRE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(entry.talkgroup == 0U);
+
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID, unitBytes);
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, roamer) == 0U);
+
+    // an own-system SUID is never accepted as a SUID announcement
+    const std::vector<uint8_t> ownBytes = { 0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU };
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, ownBytes);
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, SUID{ 0xDEE00U, 0x13BU, 0x0F4240U }, entry));
+
+    // bulk snapshots replace the peer's foreign registrations
+    const SUID second = { 0xDEE00U, 0x911U, 0x000001U };
+    std::vector<uint8_t> bulk = { 0x00U, 0x00U, 0x00U, 0x02U };
+    bulk.insert(bulk.end(), unitBytes.begin(), unitBytes.end());
+    const std::vector<uint8_t> secondBytes = { 0x00U, 0x00U, 0x01U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+    bulk.insert(bulk.end(), secondBytes.begin(), secondBytes.end());
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, bulk);
+    CHECK(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(FNETestHooks::findSuidRegistration(harness.traffic, second, entry));
+
+    std::vector<uint8_t> single = { 0x00U, 0x00U, 0x00U, 0x01U };
+    single.insert(single.end(), unitBytes.begin(), unitBytes.end());
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, single);
+    CHECK(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, second, entry));
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, second) == 0U);
+
+    // a count that disagrees with the length changes nothing
+    std::vector<uint8_t> mismatch = { 0x00U, 0x00U, 0x00U, 0x05U };
+    mismatch.insert(mismatch.end(), unitBytes.begin(), unitBytes.end());
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, mismatch);
+    CHECK(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+
+    std::vector<uint8_t> affs = { 0x00U, 0x00U, 0x00U, 0x01U };
+    affs.insert(affs.end(), affilBytes.begin(), affilBytes.end());
+    announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affs);
+    REQUIRE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+    CHECK(entry.talkgroup == 4001U);
+
+    // peer teardown removes the peer's foreign units
+    FNETestHooks::teardownPeer(harness.traffic, 2001U);
+    CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
+}

@@ -112,6 +112,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_affiliationUpdateMutex(),
     m_unitRouteRegistry(),
     m_roamingConfig(),
+    m_suidRegistrations(),
     m_subscriberOperations(),
     m_ccPeerMap(),
     m_peerReplicaKeyQueue(),
@@ -1953,6 +1954,115 @@ void TrafficNetwork::publishAggregatedAffiliations(const std::unordered_map<uint
     }
 }
 
+/* Applies a SUID announcement from a roaming-capable peer to the SUID tables. */
+
+bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uint8_t subFunc, const uint8_t* data, uint32_t length)
+{
+    PeerConnectionPtr connection = findPeer(peerId);
+    if (connection == nullptr || !connection->p25RoamingCapable()) {
+        LogWarning(LOG_MASTER, "PEER %u SUID announcement on a link that did not negotiate P25 roaming, subFunc = $%02X, dropped",
+            peerId, subFunc);
+        return false;
+    }
+
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    auto foreign = [this](const roaming::SUID& suid) {
+        return !(m_roamingConfig.enabled() && suid.netId == m_roamingConfig.netId() && suid.sysId == m_roamingConfig.sysId());
+    };
+
+    switch (subFunc) {
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID:
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID:
+    case NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID:
+    case NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID:
+        {
+            roaming::SuidAnnouncement entry;
+            if (!roaming::RoamingCodec::decodeSuidAnnouncement(subFunc, data, length, entry)) {
+                LogWarning(LOG_MASTER, "PEER %u malformed SUID announcement, subFunc = $%02X, length = %u, dropped", peerId, subFunc, length);
+                return false;
+            }
+
+            if (!foreign(entry.suid)) {
+                LogWarning(LOG_MASTER, "PEER %u SUID announcement for this system's unit $%05X.$%03X.%u, dropped", peerId,
+                    entry.suid.netId, entry.suid.sysId, entry.suid.unitId);
+                return false;
+            }
+
+            if (subFunc == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID) {
+                m_suidRegistrations.registerUnit(entry.suid, peerId);
+                m_unitRouteRegistry.updateSuid(entry.suid, peerId, ssrc, false, now);
+            }
+            else if (subFunc == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID) {
+                if (m_suidRegistrations.deregisterUnit(entry.suid, peerId)) {
+                    m_unitRouteRegistry.eraseSuid(entry.suid, peerId);
+                }
+            }
+            else if (subFunc == NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID) {
+                m_suidRegistrations.affiliate(entry.suid, peerId, entry.talkgroup);
+            }
+            else {
+                m_suidRegistrations.unaffiliate(entry.suid, peerId);
+            }
+
+            if (m_verbose) {
+                LogInfoEx(LOG_MASTER, "PEER %u SUID announcement, subFunc = $%02X, suid = $%05X.$%03X.%u, tgId = %u", peerId, subFunc,
+                    entry.suid.netId, entry.suid.sysId, entry.suid.unitId, entry.talkgroup);
+            }
+            return true;
+        }
+
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID:
+        {
+            std::vector<roaming::SuidAnnouncement> entries;
+            if (!roaming::RoamingCodec::decodeSuidBulk(subFunc, data, length, entries)) {
+                LogWarning(LOG_MASTER, "PEER %u malformed SUID registration update, length = %u, dropped", peerId, length);
+                return false;
+            }
+
+            std::vector<roaming::SUID> regs;
+            regs.reserve(entries.size());
+            for (const roaming::SuidAnnouncement& entry : entries) {
+                if (foreign(entry.suid)) {
+                    regs.push_back(entry.suid);
+                }
+            }
+
+            const std::vector<roaming::SUID> removed = m_suidRegistrations.replacePeerRegistrations(peerId, regs);
+            for (const roaming::SUID& suid : removed) {
+                m_unitRouteRegistry.eraseSuid(suid, peerId);
+            }
+
+            for (const roaming::SUID& suid : regs) {
+                m_unitRouteRegistry.updateSuid(suid, peerId, ssrc, false, now);
+            }
+            return true;
+        }
+
+    case NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID:
+        {
+            std::vector<roaming::SuidAnnouncement> entries;
+            if (!roaming::RoamingCodec::decodeSuidBulk(subFunc, data, length, entries)) {
+                LogWarning(LOG_MASTER, "PEER %u malformed SUID affiliation update, length = %u, dropped", peerId, length);
+                return false;
+            }
+
+            std::vector<roaming::SuidAnnouncement> affs;
+            affs.reserve(entries.size());
+            for (const roaming::SuidAnnouncement& entry : entries) {
+                if (foreign(entry.suid)) {
+                    affs.push_back(entry);
+                }
+            }
+
+            m_suidRegistrations.replacePeerAffiliations(peerId, affs);
+            return true;
+        }
+
+    default:
+        return false;
+    }
+}
+
 /* Adds one peer unit registration and publishes the aggregate upstream. */
 
 bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log)
@@ -2168,6 +2278,9 @@ void TrafficNetwork::erasePeer(uint32_t peerId)
 
         logSpanningTree();
     }
+
+    // cleanup foreign (SUID) registrations; erasePeerAffiliations() also removes this peer's unit routes
+    m_suidRegistrations.erasePeer(peerId);
 
     // cleanup peer affiliations
     erasePeerAffiliations(peerId);

@@ -435,6 +435,23 @@ public:
         const std::vector<uint8_t>& packet);
 
     /**
+     * @brief Looks up a foreign (SUID) registration entry.
+     * @param network The TrafficNetwork instance.
+     * @param suid Foreign SUID.
+     * @param[out] entry Entry when found.
+     * @return True if found, false otherwise.
+     */
+    static bool findSuidRegistration(network::TrafficNetwork& network, const network::roaming::SUID& suid,
+        network::SuidRegistrationTable::Entry& entry);
+    /**
+     * @brief Resolves the next-hop peer of a SUID route.
+     * @param network The TrafficNetwork instance.
+     * @param suid Subscriber SUID.
+     * @return Peer ID, or 0 when no route exists.
+     */
+    static uint32_t findSuidRoute(network::TrafficNetwork& network, const network::roaming::SUID& suid);
+
+    /**
      * @brief Passes an encoded KMM through the FNE OTAR message dispatcher.
      * @param network The TrafficNetwork that owns the OTAR service.
      * @param packet Encoded KMM bytes.
