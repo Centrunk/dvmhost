@@ -87,8 +87,9 @@ Roaming SUs are served locally only until roaming identity translation is implem
   belongs to a registered roaming SU releases that SU's WUID; it is acknowledged with the SU's own
   WACN ID and System ID and is not subject to the RID ACL or automatic inhibit. ACK_RSP_FNE to a
   roaming or foreign U_REG_REQ likewise names the requesting SUID and does not refresh any
-  registration timer. A requesting SUID's WACN ID or System ID of 0 is echoed as 0. A U_DE_REG_REQ carrying the site's WACN ID and System ID with a Unit ID inside
-  the roaming pool is not a roaming SU's SUID; it is logged and ignored and never releases a WUID.
+  registration timer. A requesting SUID's WACN ID or System ID of 0 is echoed as 0. A U_DE_REG_REQ
+  carrying the site's WACN ID and System ID with a Unit ID inside the roaming pool is not a roaming
+  SU's SUID; it is logged and ignored and never releases a WUID.
 
 WUIDs are released on de-registration and WUID validity expiry (`wuidValidity`). The pool is held
 in memory; a restart clears it and roaming SUs re-register. When unit registration timeouts are

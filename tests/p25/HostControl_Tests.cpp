@@ -17,18 +17,18 @@
 #include "common/network/Network.h"
 #include "common/edac/CRC.h"
 #include "common/p25/P25Defines.h"
-#include "common/p25/data/Assembler.h"
-#include "common/p25/data/DataHeader.h"
-#include "common/p25/data/ConventionalRegistration.h"
-#include "common/p25/sndcp/SNDCPCtxActRequest.h"
 #include "common/p25/P25Utils.h"
-#include "common/Utils.h"
+#include "common/p25/data/Assembler.h"
+#include "common/p25/data/ConventionalRegistration.h"
+#include "common/p25/data/DataHeader.h"
 #include "common/p25/data/LowSpeedData.h"
 #include "common/p25/lc/LC.h"
 #include "common/p25/lc/tdulc/TDULCFactory.h"
 #include "common/p25/lc/TSBK.h"
 #include "common/p25/lc/tsbk/IOSP_EXT_FNCT.h"
 #include "common/p25/lc/tsbk/TSBKFactory.h"
+#include "common/p25/sndcp/SNDCPCtxActRequest.h"
+#include "common/Utils.h"
 #include "host/p25/lookups/P25WuidLookup.h"
 #include "host/modem/Modem.h"
 #include "modem/port/IModemPort.h"
@@ -255,8 +255,8 @@ bool drainForTSBK(p25::Control& control, uint8_t lco, uint8_t* raw, bool& pduSee
  * @brief Drains queued RF frames and disassembles the last PDU frame (an AMBT/MBT) found.
  * @param control P25 controller.
  * @param[out] header Decoded PDU header when found.
- * @param[out] userData Decoded PDU user data (including the trailing CRC-32) when found; at least
- *  P25_MAX_PDU_BLOCKS * P25_PDU_CONFIRMED_LENGTH_BYTES + 2 bytes.
+ * @param[out] userData Decoded PDU user data (the packet length, excluding the packet CRC-32) when found;
+ *  at least P25_MAX_PDU_BLOCKS * P25_PDU_CONFIRMED_LENGTH_BYTES + 2 bytes.
  * @returns bool True if a PDU frame was drained and disassembled completely; otherwise, false.
  */
 bool drainForPDU(p25::Control& control, p25::data::DataHeader& header, uint8_t* userData)
@@ -2522,14 +2522,15 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
 
         // extended U_REG_RSP (TIA-102.AABC-D Figure 6.2.21-2) addressed to the foreign SUID: header octets 8-9
         // WACN ID (b19-b4); data octet 0 WACN ID (b3-b0) and System ID (b11-b8), octet 1 System ID (b7-b0),
-        // octets 2-4 Source ID, octet 5 RV, octets 6-8 Source Address
+        // octets 2-4 Source ID, octet 5 RV, octets 6-7 reserved; the Source Address is header octets 3-5 (LLID)
         CHECK(header.getFormat() == p25::defines::PDUFormatType::AMBT);
         CHECK(header.getOutbound());
         CHECK(header.getAMBTOpcode() == p25::defines::TSBKO::IOSP_U_REG);
         CHECK(header.getAMBTField8() == 0x12U);
         CHECK(header.getAMBTField9() == 0x34U);
-        const uint8_t expected[9U] = { 0x50U, 0x01U, 0x00U, 0x03U, 0xE9U, 0x02U, 0x00U, 0x00U, 0x00U };
-        for (uint32_t i = 0U; i < 9U; i++) {
+        CHECK(header.getLLId() == 0x000000U);                                       // Source Address ("No one")
+        const uint8_t expected[8U] = { 0x50U, 0x01U, 0x00U, 0x03U, 0xE9U, 0x02U, 0x00U, 0x00U };
+        for (uint32_t i = 0U; i < 8U; i++) {
             INFO("data octet " << i);
             CHECK(userData[i] == expected[i]);
         }

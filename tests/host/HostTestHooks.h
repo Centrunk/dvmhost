@@ -416,7 +416,8 @@ public:
      * @param control P25 controller.
      * @param header PDU data header to place in the RF assembler.
      * @param[in] userData SNDCP control PDU user data.
-     * @returns bool True if the SNDCP control data was accepted for forwarding; otherwise, false.
+     * @returns bool True if the SNDCP control data was processed; false if it was rejected (unsupported, undecodable or a
+     *  roaming WUID). Forwarding is governed separately by the network write path.
      */
     static bool p25ProcessSNDCPControl(p25::Control& control, const p25::data::DataHeader& header, const uint8_t* userData);
     /**
