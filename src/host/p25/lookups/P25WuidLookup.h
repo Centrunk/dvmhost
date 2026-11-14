@@ -51,6 +51,17 @@ namespace p25
              * @brief Initializes a new instance of the P25WuidLookup class.
              */
             P25WuidLookup();
+            /**
+             * @brief Copying is not permitted; the instance owns its mutex and WUID assignment state.
+             * @param other Instance that would be copied.
+             */
+            P25WuidLookup(const P25WuidLookup& other) = delete;
+            /**
+             * @brief Copy assignment is not permitted; the instance owns its mutex and WUID assignment state.
+             * @param other Instance that would be copied.
+             * @returns P25WuidLookup& Not applicable; the operator is deleted.
+             */
+            P25WuidLookup& operator=(const P25WuidLookup& other) = delete;
 
             /**
              * @brief Validates a WUID pool range.

@@ -811,9 +811,11 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                     writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_GRP_AFF, true, true);
                 }
 
-                if (m_p25->m_wuidLookup->isPoolWuid(srcId)) {
-                    LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming unit, group sysId = $%03X (foreign groups not translated), srcId = %u, dstId = %u",
-                        tsbk->toString(true).c_str(), tsbk->getSysId(), srcId, dstId);
+                // the System ID is that of the requested group (TIA-102.AABC-D 6.1.9.1); a roaming SU's group from
+                // another system is not translated and affiliates to the same-numbered local talkgroup
+                if (m_p25->m_wuidLookup->isPoolWuid(srcId) && (tsbk->getSysId() != m_p25->m_siteData.sysId())) {
+                    LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming unit, group sysId = $%03X differs from site sysId = $%03X, affiliating local talkgroup (groups not translated), srcId = %u, dstId = %u",
+                        tsbk->toString(true).c_str(), tsbk->getSysId(), m_p25->m_siteData.sysId(), srcId, dstId);
                 }
 
                 if (writeRF_TSDU_Grp_Aff_Rsp(srcId, dstId) == ResponseCode::REFUSED) {
