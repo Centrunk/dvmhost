@@ -610,6 +610,17 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
         return;
     }
 
+    // A Serving Registration with presence Not Confirmed (a timer refresh or resync) for an SU the home records at a
+    // different serving RFSS must confirm presence; the record stays, so a serving RFSS that missed its Home
+    // Deregistration cannot take the SU back from the RFSS that holds it (BACA 5.5.1(2b)).
+    if (existing != m_home.end() && msg.presence == RoamPresence::NOT_CONFIRMED && !(existing->second.serving == msg.serving)) {
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u Serving Registration with presence Not Confirmed from $%05X.$%03X RFSS $%02X, SU served by $%05X.$%03X RFSS $%02X, suid = $%05X.$%03X.$%06X, txnId = %08X, answered MME_MUST_CONFIRM_SU_PRESENCE",
+            linkName(ingress), ingress.peerId, msg.serving.netId, msg.serving.sysId, msg.serving.rfssId, existing->second.serving.netId,
+            existing->second.serving.sysId, existing->second.serving.rfssId, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
+        queueReply(actions, ingress, msg, RoamResult::MME_MUST_CONFIRM_SU_PRESENCE);
+        return;
+    }
+
     const bool hadPrevious = (existing != m_home.end());
     HomeRecord previous;
     if (hadPrevious) {

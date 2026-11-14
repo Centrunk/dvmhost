@@ -598,6 +598,43 @@ TEST_CASE("RoamingService home procedures", "[fne][roaming][service][home]")
         CHECK(countSent(host, FNE_A, NET_SUBFUNC::ROAM_HOME_DEREG) == 1U);
     }
 
+    SECTION("Not_Confirmed_Presence_From_Another_Serving_RFSS_Must_Be_Confirmed") {
+        // a lost Home Deregistration leaves the old serving RFSS refreshing with presence Not Confirmed (BACA 5.5.1(2b))
+        deliver(home, FNE_B, servingReg(ROAMER, SERVING_222, 0x2014U), 0U);
+        RoamingMessage stale = servingReg(ROAMER, SERVING_13B, 0x2015U);
+        stale.presence = RoamPresence::NOT_CONFIRMED;
+        deliver(home, FNE_A, stale, 1000U);
+
+        const RoamingMessage rsp = lastSent(host, FNE_A, NET_SUBFUNC::ROAM_SERVING_REG_RSP);
+        CHECK(rsp.txnId == 0x2015U);
+        CHECK(rsp.result == RoamResult::MME_MUST_CONFIRM_SU_PRESENCE);
+        CHECK(countSent(host, FNE_B, NET_SUBFUNC::ROAM_HOME_DEREG) == 0U);
+        REQUIRE(home.homeRecords().size() == 1U);
+        CHECK(home.homeRecords()[0U].serving == SERVING_222);
+        CHECK(home.homeRecords()[0U].link == FNE_B);
+        CHECK(home.homeRecords()[0U].expiresAtMs == 18000000U);
+        CHECK(host.routes[ROAMER.pack()] == FNE_B);
+
+        // a confirmed presence from the same RFSS moves the SU as usual
+        deliver(home, FNE_A, servingReg(ROAMER, SERVING_13B, 0x2016U), 2000U);
+        CHECK(lastSent(host, FNE_A, NET_SUBFUNC::ROAM_SERVING_REG_RSP).result == RoamResult::SUCCESS);
+        CHECK(countSent(host, FNE_B, NET_SUBFUNC::ROAM_HOME_DEREG) == 1U);
+        CHECK(home.homeRecords()[0U].serving == SERVING_13B);
+    }
+
+    SECTION("Not_Confirmed_Presence_From_The_Current_Serving_RFSS_Or_Without_A_Record_Is_Accepted") {
+        RoamingMessage first = servingReg(ROAMER, SERVING_13B, 0x2017U);
+        first.presence = RoamPresence::NOT_CONFIRMED;
+        deliver(home, FNE_A, first, 0U);
+        CHECK(lastSent(host, FNE_A, NET_SUBFUNC::ROAM_SERVING_REG_RSP).result == RoamResult::SUCCESS);
+
+        RoamingMessage refresh = servingReg(ROAMER, SERVING_13B, 0x2018U);
+        refresh.presence = RoamPresence::NOT_CONFIRMED;
+        deliver(home, FNE_A, refresh, 5000U);
+        CHECK(lastSent(host, FNE_A, NET_SUBFUNC::ROAM_SERVING_REG_RSP).result == RoamResult::SUCCESS);
+        CHECK(home.homeRecords()[0U].expiresAtMs == 5000U + 18000000U);
+    }
+
     SECTION("Non_Home_System_Without_A_Route_Is_MME_SU_UNKNOWN") {
         const SUID other = { 0xDEE00U, 0x777U, 5U };
         deliver(home, FNE_A, servingReg(other, SERVING_13B, 0x2011U), 0U);

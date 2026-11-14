@@ -404,3 +404,74 @@ TEST_CASE("Multi-FNE harness moves a roamer between two serving RFSSs behind one
     CHECK(fneA.service.pendingCount() == 0U);
     CHECK(fneB.service.pendingCount() == 0U);
 }
+
+TEST_CASE("Multi-FNE harness keeps a moved roamer when the old serving RFSS missed its Home Deregistration", "[fne][roaming][harness]")
+{
+    g_now = 0U;
+
+    HarnessFne fneA(0xDEE00U, 0x13BU);                                              // serving system $13B
+    HarnessFne fneB(0xDEE00U, 0x911U);                                              // home system $911
+    HarnessFne fneC(0xDEE00U, 0x222U);                                              // second serving system $222
+    fneB.authorized.insert(0x0F4240U);
+
+    const RoamingLink aToB = { 2001U, false };
+    const RoamingLink bToA = { 2001U, true };
+    const RoamingLink bToC = { 2002U, false };
+    const RoamingLink cToB = { 2002U, true };
+    const RoamingLink aHost = { 1001U, false };
+    const RoamingLink cHost = { 3001U, false };
+
+    fneA.service.linkUp(aHost, true, false, 0xDEE00U, 0x13BU);
+    fneA.service.linkUp(aToB, true, true, 0xDEE00U, 0x911U);
+    fneB.service.linkUp(bToA, true, true, 0xDEE00U, 0x13BU);
+    fneB.service.linkUp(bToC, true, true, 0xDEE00U, 0x222U);
+    fneC.service.linkUp(cToB, true, true, 0xDEE00U, 0x911U);
+    fneC.service.linkUp(cHost, true, false, 0xDEE00U, 0x222U);
+
+    HarnessHost hostA(RfssIdentity{ 0xDEE00U, 0x13BU, 0x01U });
+    HarnessHost hostC(RfssIdentity{ 0xDEE00U, 0x222U, 0x01U });
+
+    // the home-to-A link loses every Home Deregistration
+    uint32_t lostHomeDeregs = 0U;
+    fneA.links[aToB.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneB.service.process(bToA, s, d, l, g_now); };
+    fneB.links[bToA.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) {
+        if (s == NET_SUBFUNC::ROAM_HOME_DEREG) {
+            lostHomeDeregs++;
+            return;
+        }
+        fneA.service.process(aToB, s, d, l, g_now);
+    };
+    fneB.links[bToC.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneC.service.process(cToB, s, d, l, g_now); };
+    fneC.links[cToB.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneB.service.process(bToC, s, d, l, g_now); };
+    fneA.links[aHost.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { hostA.client.processMessage(s, d, l); };
+    fneC.links[cHost.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { hostC.client.processMessage(s, d, l); };
+    hostA.deliver = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneA.service.process(aHost, s, d, l, g_now); };
+    hostC.deliver = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneC.service.process(cHost, s, d, l, g_now); };
+
+    const SUID roamer = { 0xDEE00U, 0x911U, 0x0F4240U };
+    REQUIRE(hostA.client.requestRegistration(roamer, true) == P25RoamingClient::RequestResult::SENT);
+    REQUIRE(hostA.client.isRoamer(roamer));
+
+    // the SU moves to $222; the Roamed Home Deregistration toward A is lost, so host A still holds the SU
+    g_now = 1000U;
+    REQUIRE(hostC.client.requestRegistration(roamer, true) == P25RoamingClient::RequestResult::SENT);
+    REQUIRE(hostC.client.isRoamer(roamer));
+    CHECK(lostHomeDeregs == 1U);
+    REQUIRE(hostA.client.isRoamer(roamer));
+
+    // host A's timer refresh (presence Not Confirmed) must not take the SU back: the home answers
+    //  MME_MUST_CONFIRM_SU_PRESENCE and host A releases the roamer silently (spec 4.2)
+    g_now = 14400000U;
+    hostA.client.clock(14400000U);
+    REQUIRE(hostA.outcomes.size() == 2U);
+    CHECK(hostA.outcomes[1U] == P25RoamingClient::Outcome::REJECTED);
+    CHECK_FALSE(hostA.client.isRoamer(roamer));
+    CHECK(hostC.client.isRoamer(roamer));
+    CHECK(hostC.homeDeregs.empty());
+    REQUIRE(fneB.service.homeRecords().size() == 1U);
+    CHECK(fneB.service.homeRecords()[0U].serving == RfssIdentity{ 0xDEE00U, 0x222U, 0x01U });
+    CHECK(fneB.service.homeRecords()[0U].link == bToC);
+    CHECK(fneB.routes[roamer.pack()] == bToC);
+    CHECK(fneA.service.pendingCount() == 0U);
+    CHECK(fneB.service.pendingCount() == 1U);                                       // the lost Home Deregistration
+}

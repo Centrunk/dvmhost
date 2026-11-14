@@ -87,7 +87,9 @@ the roaming log.
      radio inhibit is applied again).
 5. The site refreshes the registration at 80 % of `expires` (presence Not Confirmed), or with presence
    Confirmed when the SU registers again. A refresh the home rejects releases the roamer silently; a
-   refresh that fails keeps the roamer and retries after RetryTime.
+   refresh that fails keeps the roamer and retries after RetryTime. A Not Confirmed refresh for an SU the
+   home records at a different serving RFSS is answered `MME_MUST_CONFIRM_SU_PRESENCE` and the home keeps
+   its record, so a site that missed a Home Deregistration releases the roamer instead of taking it back.
 
 An unreachable home produces no message on the wire: FAILED has no encoding. A host whose own FNE link
 did not negotiate roaming, or has no network, completes as FAILED immediately. Otherwise, when the
