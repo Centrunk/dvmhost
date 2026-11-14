@@ -209,6 +209,11 @@ TEST_CASE("FNE P25 roaming login evaluation and configuration ACK", "[fne][roami
         true, peer) == RoamingLogin::CAPABLE);
     CHECK(peer.sysId == 0x911U);
 
+    // a downstream FNE offering this system's own identity would be a second home (one FNE per system holds it)
+    CHECK(config.evaluateLogin(parseObject("{\"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 0}}"),
+        true, peer) == RoamingLogin::SAME_SYSTEM_FNE);
+    CHECK(peer.sysId == 0x13BU);
+
     // an FNE without an identity never negotiates and never rejects
     RoamingConfig disabled;
     CHECK(disabled.evaluateLogin(parseObject("{\"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 2321, \"rfssId\": 1}}"),
@@ -708,4 +713,21 @@ TEST_CASE("FNE does not treat a traffic-learned unit route as a home-site regist
         CHECK(write.subFunction != network::NET_SUBFUNC::ROAM_HOME_DEREG);
     }
     CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
+}
+
+TEST_CASE("FNE treats a downstream FNE offering this system's own identity as not roaming capable", "[fne][roaming][login]")
+{
+    // exactly one FNE per system (WACN + System ID) holds the identity: the home (one Home RFSS per SU)
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+    network::FNEPeerConnection& neighbor = FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
+        rptcPacket("{\"identity\": \"FNE315B\", \"peerClass\": 1, \"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 0}}"));
+
+    // the login is accepted, but the link never negotiates roaming
+    REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1001U));
+    CHECK(FNETestHooks::peerState(harness.traffic, 1001U) == network::NET_STAT_RUNNING);
+    CHECK(neighbor.peerClass() == network::PEER_CONN_CLASS_NEIGHBOR);
+    CHECK_FALSE(neighbor.p25RoamingCapable());
+    CHECK_FALSE(harness.traffic.roaming()->isLinkCapable(RoamingLink{ 1001U, false }));
 }

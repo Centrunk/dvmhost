@@ -49,7 +49,9 @@ namespace network
         enum E : uint8_t {
             NOT_CAPABLE = 0U,                           //!< Accept the login without P25 roaming
             CAPABLE = 1U,                               //!< Accept the login with P25 roaming
-            REJECT_MISMATCH = 2U                        //!< Reject: host WACN ID or System ID differs from this system
+            REJECT_MISMATCH = 2U,                       //!< Reject: host WACN ID or System ID differs from this system
+            SAME_SYSTEM_FNE = 3U                        //!< Accept without P25 roaming: a downstream FNE offered this system's
+                                                        //!<  own identity (exactly one FNE per system holds it, the home)
         };
     }
 
@@ -107,7 +109,8 @@ namespace network
         /**
          * @brief Evaluates the p25Roaming object of an RPTC configuration (spec 2.2, 3.1).
          * @param peerConfig RPTC configuration JSON.
-         * @param neighbor Flag indicating the peer is a downstream FNE (another system).
+         * @param neighbor Flag indicating the peer is a downstream FNE (expected to be another system; one offering this
+         *  system's identity is answered SAME_SYSTEM_FNE).
          * @param[out] peer Offered identity (zeroed when none was offered).
          * @returns RoamingLogin::E Login decision.
          */

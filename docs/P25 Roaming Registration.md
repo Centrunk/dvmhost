@@ -46,6 +46,12 @@ lies inside the pool is refused.
 | `p25SysId` | unset (example: `0`) | This system's System ID (hexadecimal, 1 - FFF). |
 | `p25RoamingExpires` | `18000` | Seconds a home registration lasts; values of 14400 or less disable roaming at startup (an error is logged and the FNE keeps running without roaming). |
 
+Exactly one FNE per system (WACN ID + System ID) may set `p25NetId` and `p25SysId`: that FNE is the
+system's home, because each SU has exactly one Home RFSS found from its WACN ID and System ID
+(TIA-102.BACA-B 2.1.3.1.1). Downstream FNEs of the same system must leave both keys unset. A downstream
+FNE that offers this FNE's own identity at login, or an upstream master that answers with it, is logged
+as a warning naming the peer and the link is treated as not roaming capable.
+
 P25 roaming between DVM systems is negotiated only when both identity keys are set to non-zero
 values. Both absent, or both `0` (as in `fne-config.example.yml`), means the FNE has no P25
 identity and behaves as it did before roaming; setting only one of the two disables roaming and

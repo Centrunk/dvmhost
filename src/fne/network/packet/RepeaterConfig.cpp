@@ -107,6 +107,17 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                             return;
                         }
 
+                        if (roamingLogin == RoamingLogin::SAME_SYSTEM_FNE) {
+                            std::string offeredIdentity = "* UNK *";
+                            const json::object::const_iterator ident = offered.find("identity");
+                            if (ident != offered.end() && ident->second.is<std::string>()) {
+                                offeredIdentity = ident->second.get<std::string>();
+                            }
+
+                            LogWarning(LOG_MASTER, "PEER %u (%s) downstream FNE offers this system's own P25 identity, netId = $%05X, sysId = $%03X; only the home FNE of a system may set p25NetId/p25SysId, link is not P25 roaming capable",
+                                peerId, offeredIdentity.c_str(), peerRoaming.netId, peerRoaming.sysId);
+                        }
+
                         connection->config(v.get<json::object>());
                         connection->connectionState(NET_STAT_RUNNING);
                         connection->connected(true);

@@ -290,6 +290,28 @@ namespace {
     }
 } // namespace
 
+TEST_CASE("RoamingService treats an FNE link carrying this system's own identity as not roaming capable", "[fne][roaming][service][link]")
+{
+    // exactly one FNE per system holds the identity; a second FNE of the same system on either side of a link is ignored
+    FakeRoamingHost host;
+    RoamingService service(&host);
+    service.setIdentity(0xDEE00U, 0x911U, ROAM_DEFAULT_EXPIRES);
+    host.authorized.insert(0x0F4240U);
+
+    service.linkUp(UPSTREAM, true, true, 0xDEE00U, 0x911U);
+    service.linkUp(FNE_A, true, true, 0xDEE00U, 0x911U);
+    CHECK_FALSE(service.isLinkCapable(UPSTREAM));
+    CHECK_FALSE(service.isLinkCapable(FNE_A));
+
+    deliver(service, FNE_A, servingReg(ROAMER, SERVING_13B, 0x5001U), 0U);
+    CHECK(host.sent.empty());
+    CHECK(service.homeRecords().empty());
+
+    // a host of this system is not an FNE and stays capable
+    service.linkUp(HOST_LINK, true, false, 0xDEE00U, 0x911U);
+    CHECK(service.isLinkCapable(HOST_LINK));
+}
+
 TEST_CASE("RoamingService routes Serving Registration toward the home system", "[fne][roaming][service][routing]")
 {
     FakeRoamingHost host;

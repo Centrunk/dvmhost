@@ -70,6 +70,14 @@ void RoamingService::linkUp(const RoamingLink& link, bool capable, bool fne, uin
 
     std::lock_guard<std::mutex> lock(m_mutex);
 
+    // Each SU has one Home RFSS (BACA 2.1.3.1.1), found from the WACN ID and System ID of its SUID, so exactly one FNE
+    // per system holds the identity; an FNE link (upstream master or downstream FNE) carrying it would be a second home.
+    if (capable && fne && isOwnSystem(netId, sysId)) {
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u FNE carries this system's own identity, netId = $%05X, sysId = $%03X; only the home FNE of a system may set p25NetId/p25SysId, link is not P25 roaming capable",
+            linkName(link), link.peerId, netId, sysId);
+        capable = false;
+    }
+
     // a reconnecting link may carry a new identity
     for (auto it = m_systems.begin(); it != m_systems.end();) {
         if (it->second == link) {

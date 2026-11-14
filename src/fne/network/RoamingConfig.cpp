@@ -116,6 +116,12 @@ RoamingLogin::E RoamingConfig::evaluateLogin(const json::object& peerConfig, boo
         return RoamingLogin::REJECT_MISMATCH;
     }
 
+    // Each SU has one Home RFSS (BACA 2.1.3.1.1), found from the WACN ID and System ID of its SUID, so exactly one FNE
+    // per system holds the identity. A downstream FNE offering this system's identity would be a second home.
+    if (neighbor && offered && peer.netId == m_netId && peer.sysId == m_sysId) {
+        return RoamingLogin::SAME_SYSTEM_FNE;
+    }
+
     return offered ? RoamingLogin::CAPABLE : RoamingLogin::NOT_CAPABLE;
 }
 

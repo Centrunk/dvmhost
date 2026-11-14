@@ -184,7 +184,8 @@ namespace network
          */
         bool enabled() const;
         /**
-         * @brief Records a link that completed login.
+         * @brief Records a link that completed login. An FNE link carrying this system's own identity is recorded as
+         *  not roaming capable (exactly one FNE per system holds the identity).
          * @param link Link.
          * @param capable Flag indicating P25 roaming was negotiated on the link.
          * @param fne Flag indicating the far end is an FNE (another system) rather than a host.
