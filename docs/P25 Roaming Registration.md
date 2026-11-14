@@ -64,6 +64,12 @@ Roaming SUs are served locally only until roaming identity translation is implem
   not announced to the network. These requests also restart the WUID validity timer.
 - Voice, data, unit-to-unit, telephone interconnect, status, message, call alert, and extended
   function requests are denied with `DENY_SYS_UNSUPPORTED_SVC`.
+- Group affiliation requests name the group's own System ID (TIA-102.AABC-D 6.1.9.1). Groups are
+  not translated: a roaming SU affiliates to the same-numbered local talkgroup, and the host logs
+  the group and site System IDs when they differ.
+- PDU-borne SNDCP control data (for example context activation) and conventional data
+  registration from a pool WUID are logged as denied. No local SNDCP state is created, nothing is
+  forwarded, and no response is sent (both responses are FNE-owned).
 - Emergency alarms are acknowledged and logged (warning and activity log with SUID, WUID, and
   site) but are not forwarded to the network.
 - Acknowledgement, status query, group affiliation query, authentication, and radio monitor
@@ -81,7 +87,7 @@ Roaming SUs are served locally only until roaming identity translation is implem
   belongs to a registered roaming SU releases that SU's WUID; it is acknowledged with the SU's own
   WACN ID and System ID and is not subject to the RID ACL or automatic inhibit. ACK_RSP_FNE to a
   roaming or foreign U_REG_REQ likewise names the requesting SUID and does not refresh any
-  registration timer. A U_DE_REG_REQ carrying the site's WACN ID and System ID with a Unit ID inside
+  registration timer. A requesting SUID's WACN ID or System ID of 0 is echoed as 0. A U_DE_REG_REQ carrying the site's WACN ID and System ID with a Unit ID inside
   the roaming pool is not a roaming SU's SUID; it is logged and ignored and never releases a WUID.
 
 WUIDs are released on de-registration and WUID validity expiry (`wuidValidity`). The pool is held
