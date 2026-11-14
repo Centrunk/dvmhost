@@ -17,7 +17,10 @@
 #include "common/network/Network.h"
 #include "common/edac/CRC.h"
 #include "common/p25/P25Defines.h"
+#include "common/p25/data/Assembler.h"
 #include "common/p25/data/DataHeader.h"
+#include "common/p25/P25Utils.h"
+#include "common/Utils.h"
 #include "common/p25/data/LowSpeedData.h"
 #include "common/p25/lc/LC.h"
 #include "common/p25/lc/tdulc/TDULCFactory.h"
@@ -241,6 +244,58 @@ bool drainForTSBK(p25::Control& control, uint8_t lco, uint8_t* raw, bool& pduSee
 
         ::memcpy(raw, tsbk->getDecodedRaw(), p25::defines::P25_TSBK_LENGTH_BYTES);
         found = true;
+    }
+
+    return found;
+}
+
+/**
+ * @brief Drains queued RF frames and disassembles the last PDU frame (an AMBT/MBT) found.
+ * @param control P25 controller.
+ * @param[out] header Decoded PDU header when found.
+ * @param[out] userData Decoded PDU user data (including the trailing CRC-32) when found; at least
+ *  P25_MAX_PDU_BLOCKS * P25_PDU_CONFIRMED_LENGTH_BYTES + 2 bytes.
+ * @returns bool True if a PDU frame was drained and disassembled completely; otherwise, false.
+ */
+bool drainForPDU(p25::Control& control, p25::data::DataHeader& header, uint8_t* userData)
+{
+    using namespace p25::defines;
+    bool found = false;
+
+    uint8_t frame[P25_PDU_FRAME_LENGTH_BYTES + 2U];
+    uint32_t len = 0U;
+    while ((len = control.getFrame(frame)) > 0U) {
+        if (frame[0U] == modem::TAG_EOT || len == P25_TSDU_FRAME_LENGTH_BYTES + 2U) {
+            continue;
+        }
+
+        // strip the status symbols, then disassemble each FEC block following the preamble (sync and NID)
+        uint8_t bits[P25_PDU_FRAME_LENGTH_BYTES];
+        ::memset(bits, 0x00U, sizeof(bits));
+        const uint32_t bitLength = p25::P25Utils::decode(frame + 2U, bits, 0U, (len - 2U) * 8U);
+
+        p25::data::Assembler assembler;
+        bool complete = false;
+        for (uint32_t i = P25_PREAMBLE_LENGTH_BITS; i + P25_PDU_FEC_LENGTH_BITS <= bitLength; i += P25_PDU_FEC_LENGTH_BITS) {
+            uint8_t block[P25_PDU_FEC_LENGTH_BYTES];
+            ::memset(block, 0x00U, sizeof(block));
+            Utils::getBitRange(bits, block, i, P25_PDU_FEC_LENGTH_BITS);
+            // disassemble() reports per-block success; getComplete() reports the whole packet
+            if (!assembler.disassemble(block, P25_PDU_FEC_LENGTH_BYTES, i == P25_PREAMBLE_LENGTH_BITS)) {
+                break;
+            }
+
+            complete = assembler.getComplete();
+            if (complete) {
+                break;
+            }
+        }
+
+        if (complete) {
+            header = assembler.dataHeader;
+            assembler.getUserData(userData);
+            found = true;
+        }
     }
 
     return found;
@@ -2458,8 +2513,24 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
         prepareRoaming(harness, true, {});
         buildUnitRegRequest(0x12345U, 0x001U, 1001U, raw);
         REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
-        CHECK_FALSE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
-        CHECK(pduSeen);
+        p25::data::DataHeader header;
+        uint8_t userData[p25::defines::P25_MAX_PDU_BLOCKS * p25::defines::P25_PDU_CONFIRMED_LENGTH_BYTES + 2U];
+        ::memset(userData, 0x00U, sizeof(userData));
+        REQUIRE(drainForPDU(*harness.m_control, header, userData));
+
+        // extended U_REG_RSP (TIA-102.AABC-D Figure 6.2.21-2) addressed to the foreign SUID: header octets 8-9
+        // WACN ID (b19-b4); data octet 0 WACN ID (b3-b0) and System ID (b11-b8), octet 1 System ID (b7-b0),
+        // octets 2-4 Source ID, octet 5 RV, octets 6-8 Source Address
+        CHECK(header.getFormat() == p25::defines::PDUFormatType::AMBT);
+        CHECK(header.getOutbound());
+        CHECK(header.getAMBTOpcode() == p25::defines::TSBKO::IOSP_U_REG);
+        CHECK(header.getAMBTField8() == 0x12U);
+        CHECK(header.getAMBTField9() == 0x34U);
+        const uint8_t expected[9U] = { 0x50U, 0x01U, 0x00U, 0x03U, 0xE9U, 0x02U, 0x00U, 0x00U, 0x00U };
+        for (uint32_t i = 0U; i < 9U; i++) {
+            INFO("data octet " << i);
+            CHECK(userData[i] == expected[i]);
+        }
         CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
     }
 
@@ -2570,6 +2641,11 @@ TEST_CASE("P25 roaming unit services before identity translation", "[p25][host][
         buildGroupAffRequest(9000000U, 0x002U, 2001U, raw);
         REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
         REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_GRP_AFF, rsp, pduSeen));
+        // GRP_AFF_RSP (TIA-102.AABC-D 6.2.8): octet 2 bits 1-0 Group Affiliation Value, octets 5-6 Group Address,
+        // octets 7-9 Target Address
+        CHECK((rsp[2U] & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK((((uint32_t)rsp[5U] << 8) | rsp[6U]) == 2001U);
+        CHECK(getUint24(rsp, 7U) == 9000000U);
         CHECK(harness.network()->tsduWriteCount() == tsduBefore);
     }
 
