@@ -518,6 +518,12 @@ namespace p25
             void writeRF_TSDU_U_Reg_Rsp_Roaming(const lookups::P25WuidLookup::SUID& suid, uint8_t response, uint32_t wuid, const char* reason,
                 uint8_t mfId);
             /**
+             * @brief Writes a U_REG_CMD to a roamer's WUID on behalf of its home (Home Deregistration, Forced query).
+             *  Always uses the standard MFID and neither reads nor resets the last RF MFID.
+             * @param wuid Roamer WUID.
+             */
+            void writeRF_TSDU_U_Reg_Cmd_Roaming(uint32_t wuid);
+            /**
              * @brief Applies a Serving Registration outcome on air (spec 4.1 step 7).
              * @param suid Roaming SUID.
              * @param outcome Outcome.

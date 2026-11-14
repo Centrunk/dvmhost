@@ -582,6 +582,15 @@ public:
     };
 
     /**
+     * @brief One captured SUID announcement entry.
+     */
+    struct SuidAnnouncementWrite {
+        uint8_t subFunc = 0U;                   //!< Announcement sub-function.
+        network::roaming::SUID suid;            //!< Announced SUID.
+        uint32_t talkgroup = 0U;                //!< Local talkgroup (affiliations).
+    };
+
+    /**
      * @brief Initializes a new instance of the P25TestNetwork class.
      * @param localPort The local port number.
      * @param peerId The peer ID.
@@ -597,7 +606,8 @@ public:
         m_voiceWriteCount(0U),
         m_pduWriteCount(0U),
         m_roamingWrites(),
-        m_announcedSuids()
+        m_announcedSuids(),
+        m_suidAnnouncements()
     {
         // keep protocol gates deterministic for this P25-focused harness
         m_dmrEnabled = false;
@@ -843,7 +853,55 @@ public:
     bool announceUnitRegistrationSUID(const network::roaming::SUID& suid) override
     {
         m_announcedSuids.push_back(suid);
+        recordSuid(network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, suid, 0U);
         return network::Network::announceUnitRegistrationSUID(suid);
+    }
+
+    /**
+     * @brief Captures a SUID unit deregistration announcement.
+     * @param suid Announced SUID.
+     * @returns bool True if roaming is negotiated.
+     */
+    bool announceUnitDeregistrationSUID(const network::roaming::SUID& suid) override
+    {
+        return recordSuid(network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID, suid, 0U);
+    }
+
+    /**
+     * @brief Captures a SUID group affiliation announcement.
+     * @param suid Announced SUID.
+     * @param talkgroup Local talkgroup.
+     * @returns bool True if roaming is negotiated.
+     */
+    bool announceGroupAffiliationSUID(const network::roaming::SUID& suid, uint32_t talkgroup) override
+    {
+        return recordSuid(network::NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, suid, talkgroup);
+    }
+
+    /**
+     * @brief Captures a bulk SUID registration announcement.
+     * @param regs Announced SUIDs.
+     * @returns bool True if roaming is negotiated.
+     */
+    bool announceUnitRegUpdateSUID(const std::vector<network::roaming::SUID>& regs) override
+    {
+        for (const network::roaming::SUID& suid : regs) {
+            recordSuid(network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, suid, 0U);
+        }
+        return isP25RoamingActive();
+    }
+
+    /**
+     * @brief Captures a bulk SUID affiliation announcement.
+     * @param affs Announced SUIDs and talkgroups.
+     * @returns bool True if roaming is negotiated.
+     */
+    bool announceAffiliationUpdateSUID(const std::vector<network::roaming::SuidAnnouncement>& affs) override
+    {
+        for (const network::roaming::SuidAnnouncement& aff : affs) {
+            recordSuid(network::NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, aff.suid, aff.talkgroup);
+        }
+        return isP25RoamingActive();
     }
 
     /**
@@ -995,6 +1053,9 @@ public:
     /** @brief Gets every SUID carried by a unit registration announcement by SUID. */
     const std::vector<network::roaming::SUID>& announcedSuids() const { return m_announcedSuids; }
 
+    /** @brief Gets the captured SUID announcement entries. */
+    const std::vector<SuidAnnouncementWrite>& suidAnnouncements() const { return m_suidAnnouncements; }
+
 private:
     uint32_t m_resetP25Count;
     uint8_t m_lastTSDUControlByte;
@@ -1006,6 +1067,28 @@ private:
     uint32_t m_pduWriteCount;
     std::vector<RoamingWrite> m_roamingWrites;
     std::vector<network::roaming::SUID> m_announcedSuids;
+    std::vector<SuidAnnouncementWrite> m_suidAnnouncements;
+
+    /**
+     * @brief Records one SUID announcement entry when roaming is negotiated.
+     * @param subFunc Announcement sub-function.
+     * @param suid Announced SUID.
+     * @param talkgroup Local talkgroup.
+     * @returns bool True if recorded.
+     */
+    bool recordSuid(uint8_t subFunc, const network::roaming::SUID& suid, uint32_t talkgroup)
+    {
+        if (!isP25RoamingActive()) {
+            return false;
+        }
+
+        SuidAnnouncementWrite write;
+        write.subFunc = subFunc;
+        write.suid = suid;
+        write.talkgroup = talkgroup;
+        m_suidAnnouncements.push_back(write);
+        return true;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -3774,6 +3857,279 @@ TEST_CASE("P25 roaming Serving Registration through the home system", "[p25][hos
         rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
         REQUIRE(rsp != nullptr);
         CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::FAIL);
+    }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+/**
+ * @brief Delivers a home-side ROAMING request (HOME_DEREG or QUERY) to the host.
+ * @param harness Harness.
+ * @param subFunc ROAMING sub-function.
+ * @param suid Subject SUID.
+ * @param txnId Transaction ID.
+ * @param value Qualifier or query type.
+ */
+static void injectHomeRequest(P25HostHarness& harness, uint8_t subFunc, const network::roaming::SUID& suid, uint32_t txnId, uint8_t value)
+{
+    network::roaming::RoamingMessage msg;
+    msg.subFunc = subFunc;
+    msg.txnId = txnId;
+    msg.suid = suid;
+    msg.qualifier = value;
+    msg.queryType = value;
+    injectRoaming(harness, msg);
+}
+
+TEST_CASE("P25 roaming deregistration, refresh and query at the serving host", "[p25][host][roaming][mobility]")
+{
+    using namespace network::roaming;
+
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    P25HostHarness harness(true, true, 0U, 1U, false, false, true);
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+    const SUID roamer = { 0xBB800U, 0x002U, 1001U };
+    prepareMobility(harness);
+
+    SECTION("Home_Deregistration_Roamed_Is_Silent") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG, roamer, 0x51U, RoamQualifier::ROAMED);
+        const RoamingMessage rsp = lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG_RSP);
+        CHECK(rsp.txnId == 0x51U);
+        CHECK(rsp.result == RoamResult::SUCCESS);
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::OSP_U_REG_CMD) == nullptr);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+    }
+
+    SECTION("Home_Deregistration_Non_Roamed_Sends_U_REG_CMD") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG, roamer, 0x52U, RoamQualifier::NON_ROAMED);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* cmd = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_REG_CMD);
+        REQUIRE(cmd != nullptr);
+        CHECK(getUint24(cmd->data(), 4U) == wuid);                                // Target Address
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG_RSP).result == RoamResult::SUCCESS);
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+    }
+
+    SECTION("Home_Deregistration_For_An_Unknown_SUID_Is_Not_Found") {
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG, SUID{ 0xBB800U, 0x002U, 99U }, 0x53U, RoamQualifier::ROAMED);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG_RSP).result == RoamResult::MME_SU_UNKNOWN);
+    }
+
+    SECTION("Home_Site_Internal_Deregistration_Releases_A_Home_SU_Silently") {
+        REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1001U) == 1001U);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG, SUID{ 0xBB800U, 0x001U, 1001U }, 0x54U, RoamQualifier::ROAMED);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG_RSP).result == RoamResult::SUCCESS);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::OSP_U_REG_CMD) == nullptr);
+    }
+
+    SECTION("U_DE_REG_REQ_Sends_Serving_Deregistration") {
+        registerRoamer(harness, 1001U);
+        buildUnitDeregRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+        const RoamingMessage dereg = lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG);
+        CHECK(dereg.suid == roamer);
+        CHECK(dereg.serving == RfssIdentity{ 0xBB800U, 0x001U, 0x01U });
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+    }
+
+    SECTION("WUID_Expiry_Sends_Serving_Deregistration") {
+        HostTestHooks::p25SetUnitRegTimeout(*harness.m_control, 10U);
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        HostTestHooks::p25ClockSiteData(*harness.m_control, 11000U);
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+    }
+
+    SECTION("WUID_Expiry_Forgets_The_Roamer_So_Reregistration_Asks_The_Home") {
+        HostTestHooks::p25SetUnitRegTimeout(*harness.m_control, 10U);
+        registerRoamer(harness, 1001U);
+        HostTestHooks::p25ClockSiteData(*harness.m_control, 11000U);
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+
+        bool sawDereg = false;
+        for (const auto& write : harness.network()->suidAnnouncements()) {
+            sawDereg |= (write.subFunc == network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID && write.suid == roamer);
+        }
+        CHECK(sawDereg);
+
+        // a fresh home registration, not the held-roamer re-accept
+        drainTSBKs(*harness.m_control);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 2U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG).presence == RoamPresence::CONFIRMED);
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::IOSP_U_REG) == nullptr);
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+    }
+
+    SECTION("Timer_Refresh_Is_Not_Confirmed_And_Silent_On_Air") {
+        registerRoamer(harness, 1001U);
+        HostTestHooks::p25ClockU2U(*harness.m_control, 14400000U);
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 2U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG).presence == RoamPresence::NOT_CONFIRMED);
+        answerServingRegistration(harness, RoamResult::SUCCESS);
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::IOSP_U_REG) == nullptr);
+        CHECK(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+    }
+
+    SECTION("SU_Refresh_Is_Confirmed_And_Answered_On_Air") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 2U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG).presence == RoamPresence::CONFIRMED);
+        answerServingRegistration(harness, RoamResult::SUCCESS);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK(getUint24(rsp->data(), 7U) == wuid);
+    }
+
+    SECTION("Reconnect_Resynchronises_Held_Roamers") {
+        registerRoamer(harness, 1001U);
+        harness.network()->deactivateRoamingForTest();
+        HostTestHooks::p25ClockU2U(*harness.m_control, 1U);
+        harness.network()->activateRoamingForTest(0xBB800U, 0x001U);
+        HostTestHooks::p25ClockU2U(*harness.m_control, 1U);
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 2U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG).presence == RoamPresence::NOT_CONFIRMED);
+    }
+
+    SECTION("Link_Drop_Completes_A_Pending_Registration_As_FAILED") {
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        harness.network()->deactivateRoamingForTest();
+        HostTestHooks::p25ClockU2U(*harness.m_control, 1U);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+    }
+
+    SECTION("Normal_Query") {
+        registerRoamer(harness, 1001U);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_QUERY, roamer, 0x55U, RoamQueryType::NORMAL_HOME);
+        const RoamingMessage rsp = lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_QUERY_RSP);
+        CHECK(rsp.result == RoamResult::SUCCESS);
+        CHECK(rsp.interested == 1U);
+    }
+
+    SECTION("Forced_Query_Commands_Reregistration_Then_Deregisters") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_QUERY, roamer, 0x56U, RoamQueryType::FORCED);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* cmd = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_REG_CMD);
+        REQUIRE(cmd != nullptr);
+        CHECK(getUint24(cmd->data(), 4U) == wuid);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_QUERY_RSP).interested == 1U);
+
+        HostTestHooks::p25ClockU2U(*harness.m_control, 5000U);
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+    }
+
+    SECTION("Home_Driven_U_REG_CMD_Uses_The_Standard_MFID") {
+        // the last RF TSBK may carry another SU's MFID; a command driven by the home must not inherit it
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        HostTestHooks::p25SetLastMFId(*harness.m_control, p25::defines::MFG_MOT);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_QUERY, roamer, 0x58U, RoamQueryType::FORCED);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* cmd = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_REG_CMD);
+        REQUIRE(cmd != nullptr);
+        CHECK((*cmd)[1U] == p25::defines::MFG_STANDARD);
+        CHECK(getUint24(cmd->data(), 4U) == wuid);
+
+        HostTestHooks::p25SetLastMFId(*harness.m_control, p25::defines::MFG_MOT);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_HOME_DEREG, roamer, 0x59U, RoamQualifier::NON_ROAMED);
+        tsbks = drainTSBKs(*harness.m_control);
+        cmd = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_REG_CMD);
+        REQUIRE(cmd != nullptr);
+        CHECK((*cmd)[1U] == p25::defines::MFG_STANDARD);
+        CHECK(getUint24(cmd->data(), 4U) == wuid);
+    }
+
+    SECTION("Confirmed_Query_Is_Unsupported") {
+        registerRoamer(harness, 1001U);
+        injectHomeRequest(harness, network::NET_SUBFUNC::ROAM_QUERY, roamer, 0x57U, RoamQueryType::CONFIRMED);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_QUERY_RSP).result == RoamResult::GEN_PROC_UNSUPPORTED);
+    }
+
+    SECTION("Roamers_Are_Announced_By_SUID_Only") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1002U) == 1002U);
+        buildGroupAffRequest(wuid, 0x001U, 4001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        HostTestHooks::p25ClockSiteData(*harness.m_control, 76000U);
+
+        bool sawReg = false;
+        bool sawAffil = false;
+        bool sawBulkReg = false;
+        bool sawBulkAffil = false;
+        for (const auto& write : harness.network()->suidAnnouncements()) {
+            if (!(write.suid == roamer)) {
+                continue;
+            }
+            sawReg |= (write.subFunc == network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID);
+            sawAffil |= (write.subFunc == network::NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID && write.talkgroup == 4001U);
+            sawBulkReg |= (write.subFunc == network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID);
+            sawBulkAffil |= (write.subFunc == network::NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID && write.talkgroup == 4001U);
+        }
+        CHECK(sawReg);
+        CHECK(sawAffil);
+        CHECK(sawBulkReg);
+        CHECK(sawBulkAffil);
+
+        // a pool WUID never reaches the network as a bare ID
+        for (uint32_t id : harness.network()->announcedIds()) {
+            CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->isPoolWuid(id));
+        }
+    }
+
+    SECTION("Home_SUs_Are_Never_Announced_By_SUID") {
+        REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1002U) == 1002U);
+        buildUnitDeregRequest(0xBB800U, 0x001U, 1002U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        HostTestHooks::p25ClockSiteData(*harness.m_control, 76000U);
+        CHECK(harness.network()->suidAnnouncements().empty());
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+    }
+
+    SECTION("RF_Boundary_Translation_Rules") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        uint32_t target = 0U;
+        CHECK(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, SUID{ 0xBB800U, 0x001U, 1001U }, target));
+        CHECK(target == 1001U);
+        CHECK(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, SUID{ 0U, 0U, 1001U }, target));
+        CHECK(target == 1001U);
+        CHECK(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, roamer, target));
+        CHECK(target == wuid);
+        CHECK_FALSE(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, SUID{ 0xBB800U, 0x002U, 1002U }, target));
+        CHECK_FALSE(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, SUID{ 0xBB800U, 0x001U, 9000005U }, target));
+
+        uint32_t source = 1U;
+        bool extended = true;
+        HostTestHooks::p25ResolveOnAirSource(*harness.m_control, SUID{ 0xBB800U, 0x001U, 1001U }, source, extended);
+        CHECK(source == 1001U);
+        CHECK_FALSE(extended);
+        HostTestHooks::p25ResolveOnAirSource(*harness.m_control, roamer, source, extended);
+        CHECK(source == wuid);
+        CHECK_FALSE(extended);
+        HostTestHooks::p25ResolveOnAirSource(*harness.m_control, SUID{ 0xDEE00U, 0x911U, 0x0F4240U }, source, extended);
+        CHECK(source == 0U);                                                        // No-unit $000000
+        CHECK(extended);
     }
 
     p25::lc::TSBK::setSiteData(previous);

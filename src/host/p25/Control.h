@@ -599,10 +599,43 @@ namespace p25
          * @returns bool True if a home system can be reached; false for a standalone host or a non-roaming link (spec 4.6).
          */
         bool roamingContext(network::roaming::RfssIdentity& serving) const;
+        /**
+         * @brief Applies a Home Deregistration (spec 4.4).
+         * @param suid SUID named by the home.
+         * @param qualifier Roamed or Non-Roamed.
+         * @returns bool True if this host held the SU; false for Not Found.
+         */
+        bool processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_t qualifier);
+        /**
+         * @brief Sends U_REG_CMD to a roamer's WUID (Forced query, spec 4.5).
+         * @param suid Roaming SUID.
+         * @returns bool True if the SU has a WUID here; otherwise, false.
+         */
+        bool processRoamingRegCmd(const network::roaming::SUID& suid);
+        /**
+         * @brief Releases a roamer that did not answer a Forced query.
+         * @param suid Roaming SUID.
+         */
+        void processRoamingRelease(const network::roaming::SUID& suid);
+        /**
+         * @brief Converts a network SUID to the on-air target address (spec 5).
+         * @param suid SUID from the network.
+         * @param[out] rfTarget Unit ID (own system) or WUID (roamer registered here).
+         * @returns bool True if the SU can be addressed here; false (logged) if the message must be dropped.
+         */
+        bool resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t& rfTarget) const;
+        /**
+         * @brief Chooses the on-air source for a network SUID (spec 5); a foreign Unit ID is never placed raw on air.
+         * @param suid SUID from the network.
+         * @param[out] srcAddr Unit ID, roamer WUID, or No-unit $000000.
+         * @param[out] extended True when the SUID must go in the extended Source WACN/System/ID fields.
+         */
+        void resolveOnAirSource(const network::roaming::SUID& suid, uint32_t& srcAddr, bool& extended) const;
 
         /**
          * @brief Helper to process a unit de-registration from the affiliation table.
-         *  Roaming WUIDs are returned to the pool without network announcement.
+         *  Roaming WUIDs are returned to the pool and never announced as bare IDs; a home-registered roamer is
+         *  reported to its home by Serving Deregistration, and a roamer's deregistration is announced by SUID.
          * @param srcId Unit or working unit ID that was de-registered.
          * @param automatic Flag indicating timer-driven de-registration.
          */

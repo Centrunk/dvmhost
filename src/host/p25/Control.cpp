@@ -190,6 +190,11 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
         const lookups::P25RoamingClient::Profile& profile, bool onAir) {
         return m_control->processRoamingOutcome(suid, outcome, profile, onAir);
     });
+    m_roamingClient->setHomeDeregCallback([this](const network::roaming::SUID& suid, uint8_t qualifier) {
+        return processRoamingHomeDereg(suid, qualifier);
+    });
+    m_roamingClient->setRegCmdCallback([this](const network::roaming::SUID& suid) { return processRoamingRegCmd(suid); });
+    m_roamingClient->setForcedExpiryCallback([this](const network::roaming::SUID& suid) { processRoamingRelease(suid); });
     if (m_network != nullptr) {
         m_network->setP25RoamingCallback([this](uint8_t subFunc, const uint8_t* data, uint32_t length) {
             m_roamingClient->processMessage(subFunc, data, length);
@@ -1192,7 +1197,7 @@ void Control::clockSiteData(uint32_t ms)
             if (m_rfState == RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
                 m_control->writeAdjSSNetwork();
                 if (m_network != nullptr) {
-                    // roaming SU WUIDs are local only until roaming identity translation exists
+                    // roaming SU WUIDs never reach the network as bare IDs; home-registered roamers are announced by SUID below
 
                     // network announce our unit registration table if we have one
                     if (m_affiliations->unitRegSize() > 0) {
@@ -1218,6 +1223,41 @@ void Control::clockSiteData(uint32_t ms)
 
                         if (!affs.empty()) {
                             m_network->announceAffiliationUpdate(affs);
+                        }
+                    }
+
+                    // home-registered roamers are announced by SUID on a roaming link (spec 5)
+                    if (m_network->isP25RoamingActive()) {
+                        std::vector<network::roaming::SUID> suidRegs;
+                        std::vector<network::roaming::SuidAnnouncement> suidAffs;
+                        auto affTable = m_affiliations->grpAffTable();
+                        for (uint32_t wuid : m_affiliations->unitRegTable()) {
+                            lookups::P25WuidLookup::SUID suid;
+                            if (!m_wuidLookup->isPoolWuid(wuid) || !m_wuidLookup->findByWuid(wuid, suid)) {
+                                continue;
+                            }
+
+                            const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
+                            if (!m_roamingClient->isRoamer(roamSuid)) {
+                                continue;
+                            }
+
+                            suidRegs.push_back(roamSuid);
+                            auto aff = affTable.find(wuid);
+                            if (aff != affTable.end()) {
+                                network::roaming::SuidAnnouncement entry;
+                                entry.suid = roamSuid;
+                                entry.talkgroup = aff->second;
+                                suidAffs.push_back(entry);
+                            }
+                        }
+
+                        if (!suidRegs.empty()) {
+                            m_network->announceUnitRegUpdateSUID(suidRegs);
+                        }
+
+                        if (!suidAffs.empty()) {
+                            m_network->announceAffiliationUpdateSUID(suidAffs);
                         }
                     }
                 }
@@ -2731,6 +2771,123 @@ bool Control::roamingContext(network::roaming::RfssIdentity& serving) const
     return m_network != nullptr && m_network->isP25RoamingActive();
 }
 
+/* Applies a Home Deregistration. */
+
+bool Control::processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_t qualifier)
+{
+    // the home's internal Roamed deregistration of its own site names a Home SU (spec 4.4): silent release
+    if (suid.netId == m_siteData.netId() && suid.sysId == m_siteData.sysId()) {
+        if (m_wuidLookup->isPoolWuid(suid.unitId) || !m_affiliations->isUnitReg(suid.unitId)) {
+            return false;
+        }
+
+        m_affiliations->unitDereg(suid.unitId, false);
+        return true;
+    }
+
+    const lookups::P25WuidLookup::SUID wsuid = { suid.netId, suid.sysId, suid.unitId };
+    uint32_t wuid = 0U;
+    if (!suid.valid() || !m_wuidLookup->findBySuid(wsuid, wuid)) {
+        return false;
+    }
+
+    // Non-Roamed (policy removal) commands the SU to re-register; Roamed sends nothing on air (spec 4.4)
+    if (qualifier == network::roaming::RoamQualifier::NON_ROAMED && m_enableControl) {
+        m_control->writeRF_TSDU_U_Reg_Cmd_Roaming(wuid);
+    }
+
+    // roamer services are denied until sub-projects 3c-3e, so no session of the SU exists to tear down; the
+    //  client already forgot the roamer, so the release sends no Serving Deregistration
+    m_control->releaseRoamingSU(wsuid);
+    return true;
+}
+
+/* Sends U_REG_CMD to a roamer's WUID. */
+
+bool Control::processRoamingRegCmd(const network::roaming::SUID& suid)
+{
+    uint32_t wuid = 0U;
+    if (!resolveNetworkTarget(suid, wuid) || !m_wuidLookup->isPoolWuid(wuid) || !m_enableControl) {
+        return false;
+    }
+
+    m_control->writeRF_TSDU_U_Reg_Cmd_Roaming(wuid);
+    return true;
+}
+
+/* Releases a roamer that did not answer a Forced query. */
+
+void Control::processRoamingRelease(const network::roaming::SUID& suid)
+{
+    // the client already sent the Serving Deregistration and forgot the roamer
+    const lookups::P25WuidLookup::SUID wsuid = { suid.netId, suid.sysId, suid.unitId };
+    m_control->releaseRoamingSU(wsuid);
+}
+
+/* Converts a network SUID to the on-air target address. */
+
+bool Control::resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t& rfTarget) const
+{
+    // validate before any keyed lookup; the WUID table masks each field, so an out-of-range SUID could alias another SU
+    if (!suid.valid()) {
+        LogWarning(LOG_NET, "P25, network message for out-of-range SUID $%05X.$%03X.%u, dropped", suid.netId, suid.sysId, suid.unitId);
+        return false;
+    }
+
+    // a receiver treats a zero WACN/System ID as its own system (spec 3.2)
+    const bool ownSystem = (suid.netId == 0U && suid.sysId == 0U) ||
+        (suid.netId == m_siteData.netId() && suid.sysId == m_siteData.sysId());
+    if (ownSystem) {
+        // a Home SU's WUID is its Unit ID; a pool WUID never names a home unit (TIA-102.AABD-B 6.2)
+        if (m_wuidLookup->isPoolWuid(suid.unitId)) {
+            LogWarning(LOG_NET, "P25, network message for home unit %u inside the roaming WUID pool, dropped", suid.unitId);
+            return false;
+        }
+
+        rfTarget = suid.unitId;
+        return true;
+    }
+
+    const lookups::P25WuidLookup::SUID wsuid = { suid.netId, suid.sysId, suid.unitId };
+    uint32_t wuid = 0U;
+    if (!m_wuidLookup->findBySuid(wsuid, wuid)) {
+        LogWarning(LOG_NET, "P25, network message for $%05X.$%03X.%u, SU not registered at this site, dropped", suid.netId, suid.sysId,
+            suid.unitId);
+        return false;
+    }
+
+    rfTarget = wuid;
+    return true;
+}
+
+/* Chooses the on-air source for a network SUID. */
+
+void Control::resolveOnAirSource(const network::roaming::SUID& suid, uint32_t& srcAddr, bool& extended) const
+{
+    extended = false;
+
+    const bool ownSystem = (suid.netId == 0U && suid.sysId == 0U) ||
+        (suid.netId == m_siteData.netId() && suid.sysId == m_siteData.sysId());
+    if (suid.valid()) {
+        if (ownSystem && !m_wuidLookup->isPoolWuid(suid.unitId)) {
+            srcAddr = suid.unitId;
+            return;
+        }
+
+        const lookups::P25WuidLookup::SUID wsuid = { suid.netId, suid.sysId, suid.unitId };
+        uint32_t wuid = 0U;
+        if (!ownSystem && m_wuidLookup->findBySuid(wsuid, wuid)) {
+            srcAddr = wuid;
+            return;
+        }
+    }
+
+    // Source Address No-unit with the SUID in the extended Source WACN/System/ID fields
+    //  (TIA-102.AABC-D 2.3.27, 4.2.5.2; TIA-102.BAAC-C 2.4)
+    srcAddr = 0U;
+    extended = true;
+}
+
 /* Helper to process a unit de-registration from the affiliation table. */
 
 void Control::processUnitDereg(uint32_t srcId, bool automatic)
@@ -2738,6 +2895,22 @@ void Control::processUnitDereg(uint32_t srcId, bool automatic)
     // roaming SU WUIDs are local only and return to the pool (TIA-102.AABD-B 6.6.1)
     const bool roaming = m_wuidLookup->isPoolWuid(srcId);
     if (roaming) {
+        lookups::P25WuidLookup::SUID suid;
+        if (m_wuidLookup->findByWuid(srcId, suid)) {
+            const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
+
+            // a home-registered roamer leaving here (U_DE_REG_REQ, WUID expiry) is reported to its home and forgotten,
+            //  so a later registration asks the home again (spec 4.3); Home Deregistration and policy releases forget
+            //  the roamer first, so they send nothing
+            if (m_roamingClient->isRoamer(roamSuid)) {
+                m_roamingClient->servingDeregistration(roamSuid);
+            }
+
+            if (m_network != nullptr) {
+                m_network->announceUnitDeregistrationSUID(roamSuid);
+            }
+        }
+
         m_wuidLookup->release(srcId);
     }
 

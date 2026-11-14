@@ -625,6 +625,20 @@ p25::lookups::P25RoamingClient* HostTestHooks::p25RoamingClient(p25::Control& co
     return control.m_roamingClient;
 }
 
+/* Resolves a network SUID to its on-air target address. */
+
+bool HostTestHooks::p25ResolveNetworkTarget(p25::Control& control, const network::roaming::SUID& suid, uint32_t& rfTarget)
+{
+    return control.resolveNetworkTarget(suid, rfTarget);
+}
+
+/* Resolves the on-air source for a network SUID. */
+
+void HostTestHooks::p25ResolveOnAirSource(p25::Control& control, const network::roaming::SUID& suid, uint32_t& srcAddr, bool& extended)
+{
+    control.resolveOnAirSource(suid, srcAddr, extended);
+}
+
 /* Sets whether TSBK requests are acknowledged with ACK_RSP_FNE. */
 
 void HostTestHooks::p25SetAckTSBKRequests(p25::Control& control, bool ack)

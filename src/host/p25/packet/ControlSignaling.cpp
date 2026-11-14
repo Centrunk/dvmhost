@@ -3807,6 +3807,17 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
         if (!roaming && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliation(srcId, dstId);
 
+        // a home-registered roamer's affiliation is announced by SUID with the local talkgroup (spec 5; groups bare until 3c)
+        if (roaming && m_p25->m_network != nullptr) {
+            lookups::P25WuidLookup::SUID suid;
+            if (m_p25->m_wuidLookup->findByWuid(srcId, suid)) {
+                const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
+                if (m_p25->m_roamingClient->isRoamer(roamSuid)) {
+                    m_p25->m_network->announceGroupAffiliationSUID(roamSuid, dstId);
+                }
+            }
+        }
+
         // conventional registration or DVRS support?
         if (m_p25->m_enableControl && !m_p25->m_dedicatedControl) {
             // is the RF talkgroup hang timer running?
@@ -3986,6 +3997,23 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp_Roaming(const lookups::P25WuidLook
     }
 
     writeRF_TSDU_SBF_Imm(iosp.get(), true);
+}
+
+/* Writes a U_REG_CMD to a roamer's WUID on behalf of its home. */
+
+void ControlSignaling::writeRF_TSDU_U_Reg_Cmd_Roaming(uint32_t wuid)
+{
+    // driven by a home request on the thread that processes the network, so m_lastMFID (owned by the RF
+    //  reader) belongs to an unrelated TSBK; the command always uses the standard MFID
+    std::unique_ptr<OSP_U_REG_CMD> osp = std::make_unique<OSP_U_REG_CMD>();
+    osp->setMFId(MFG_STANDARD);
+    osp->setSrcId(WUID_FNE);
+    osp->setDstId(wuid);
+
+    VERBOSE_LOG_TSBK_DST(osp->toString(), wuid);
+    ::ActivityLogEx(LOG_P25, true, "unit registration command from %u to %u, roaming", WUID_FNE, wuid);
+
+    writeRF_TSDU_SBF_Imm(osp.get(), true);
 }
 
 /* Applies a Serving Registration outcome on air. */
