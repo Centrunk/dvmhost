@@ -126,6 +126,12 @@ namespace p25
              * @returns bool True if the WUID is assigned; otherwise, false.
              */
             bool findByWuid(uint32_t wuid, SUID& suid) const;
+            /**
+             * @brief Determines whether a WUID can be assigned to a SUID, without assigning it.
+             * @param suid SUID to check.
+             * @returns bool True if the SUID already holds a WUID or the pool has a free WUID; otherwise, false.
+             */
+            bool canAllocate(const SUID& suid) const;
 
             /**
              * @brief Determines whether a WUID lies within the configured pool.

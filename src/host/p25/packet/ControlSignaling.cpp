@@ -954,7 +954,10 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                 const bool homeSU = (tsbk->getNetId() == m_p25->m_siteData.netId()) &&
                     (tsbk->getSysId() == m_p25->m_siteData.sysId());
 
-                if (m_p25->m_ackTSBKRequests) {
+                // a roaming SU's answer waits for its home system, so it always gets ACK_RSP_FNE within TRFSS_RSP
+                //  (spec 4.1 step 2; TIA-102.AABD-B 4.1.3)
+                const bool roamingSU = !homeSU && (tsbk->getNetId() == m_p25->m_siteData.netId()) && m_p25->m_allowRoaming;
+                if (m_p25->m_ackTSBKRequests || roamingSU) {
                     if (homeSU) {
                         writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_U_REG, true, true);
                     }
@@ -1935,6 +1938,9 @@ ControlSignaling::~ControlSignaling()
 
 void ControlSignaling::clock(uint32_t ms)
 {
+    // roaming Serving Registration timeouts, RetryTime, refresh and Forced-query timers (spec 4)
+    m_p25->m_roamingClient->clock(ms);
+
     // update and expire pending unit-to-unit availability transactions based on the response timer
     for (auto it = m_u2uAvailabilityTransactions.begin(); it != m_u2uAvailabilityTransactions.end(); ) {
         it->second.responseTimer.clock(ms);
@@ -3859,57 +3865,45 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
 
     // roaming SU -- same WACN, different home System ID (TIA-102.AABD-B 6.2)
     if (suid.sysId != m_p25->m_siteData.sysId()) {
-        uint32_t wuid = 0U;
         const char* reason = nullptr;
 
         if (!m_p25->m_allowRoaming) {
-            iosp->setResponse(ResponseCode::DENY);
             reason = "roaming disabled";
         }
         else if (suid.sysId == 0U) {
             // System ID $000 is not a valid home system
-            iosp->setResponse(ResponseCode::DENY);
             reason = "invalid home System ID";
         }
         else if (!m_p25->m_roamingSysIds.empty() &&
             std::find(m_p25->m_roamingSysIds.begin(), m_p25->m_roamingSysIds.end(), suid.sysId) == m_p25->m_roamingSysIds.end()) {
-            iosp->setResponse(ResponseCode::DENY);
             reason = "home System ID not permitted";
         }
-        else {
-            wuid = m_p25->m_wuidLookup->allocate(suid);
-            if (wuid == 0U) {
-                // no WUID can be assigned, so REG_FAIL is not possible; REG_DENY lets the SU try another site
-                iosp->setResponse(ResponseCode::DENY);
-                reason = "roaming WUID pool exhausted";
-            }
+        else if (!m_p25->m_wuidLookup->canAllocate(suid)) {
+            // no WUID can be assigned, so REG_FAIL is not possible; REG_DENY lets the SU try another site
+            reason = "roaming WUID pool exhausted";
         }
 
-        iosp->setSrcId(wuid);                                                       // Source Address (WUID, or "No one")
-
-        if (iosp->getResponse() != ResponseCode::ACCEPT) {
-            LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, %s, netId = $%05X, sysId = $%03X, unitId = %u",
-                iosp->toString().c_str(), reason, suid.netId, suid.sysId, unitId);
-            ::ActivityLogEx(LOG_P25, true, "unit registration request from %u ($%05X.$%03X) denied, %s", unitId, suid.netId, suid.sysId, reason);
-        }
-        else {
-            if (m_verbose) {
-                LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming, netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u",
-                    iosp->toString().c_str(), suid.netId, suid.sysId, unitId, wuid);
-            }
-
-            ::ActivityLogEx(LOG_P25, true, "unit registration request from %u ($%05X.$%03X), roaming, wuid = %u", unitId, suid.netId, suid.sysId, wuid);
-
-            // the WUID is local until roaming identity translation exists; it is not announced to the network
-            if (m_p25->m_affiliations->isUnitReg(wuid)) {
-                m_p25->m_affiliations->touchUnitRegTimer(wuid);
-            }
-            else {
-                m_p25->m_affiliations->unitReg(wuid);
-            }
+        if (reason != nullptr) {
+            writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::DENY, 0U, reason);
+            return;
         }
 
-        writeRF_TSDU_SBF_Imm(iosp.get(), true);
+        // the local checks passed; the home system authorizes the SU (TIA-102.BACA-B 5.4, AABD 6.4.1.1); the
+        //  ACK_RSP_FNE queued in this pass covers the wait (spec 4.1 step 2)
+        const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
+        switch (m_p25->m_roamingClient->requestRegistration(roamSuid, true)) {
+        case lookups::P25RoamingClient::RequestResult::SENT:
+        case lookups::P25RoamingClient::RequestResult::PENDING:
+            break;
+        case lookups::P25RoamingClient::RequestResult::HELD_OFF:
+        case lookups::P25RoamingClient::RequestResult::NOT_CAPABLE:
+        default:
+            // RetryTime after FAILED, an FNE link without roaming, no network, or an SUID the client cannot encode: the
+            //  FAILED policy applies at once (spec 4.1 step 8, 4.6); a roamer the home still holds keeps its WUID
+            processRoamingOutcome(roamSuid, lookups::P25RoamingClient::Outcome::FAILED, lookups::P25RoamingClient::Profile(), true);
+            break;
+        }
+
         return;
     }
 
@@ -3953,6 +3947,161 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
     // validate the source RID
     if (!acl::AccessControl::validateSrcId(unitId)) {
         denialInhibit(unitId); // inhibit source radio automatically
+    }
+}
+
+/* Writes an abbreviated U_REG_RSP for a roaming SU. */
+
+void ControlSignaling::writeRF_TSDU_U_Reg_Rsp_Roaming(const lookups::P25WuidLookup::SUID& suid, uint8_t response, uint32_t wuid, const char* reason)
+{
+    std::unique_ptr<IOSP_U_REG> iosp = std::make_unique<IOSP_U_REG>();
+    iosp->setMFId(transactionMFId(suid.unitId, suid.unitId, TSBKO::IOSP_U_REG, m_lastMFID));
+    iosp->setResponse(response);
+    iosp->setSUIDSysId(suid.sysId);
+    iosp->setDstId(suid.unitId);                                                    // Source ID (SUID Unit ID)
+    iosp->setSrcId(wuid);                                                           // Source Address (WUID, or "No one")
+
+    const char* why = (reason != nullptr) ? reason : "home system";
+    if (response == ResponseCode::DENY) {
+        LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, %s, netId = $%05X, sysId = $%03X, unitId = %u",
+            iosp->toString().c_str(), why, suid.netId, suid.sysId, suid.unitId);
+        ::ActivityLogEx(LOG_P25, true, "unit registration request from %u ($%05X.$%03X) denied, %s", suid.unitId, suid.netId, suid.sysId, why);
+    }
+    else {
+        if (m_verbose) {
+            LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming, netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u, response = %u",
+                iosp->toString().c_str(), suid.netId, suid.sysId, suid.unitId, wuid, response);
+        }
+
+        ::ActivityLogEx(LOG_P25, true, "unit registration request from %u ($%05X.$%03X), roaming, %s, wuid = %u", suid.unitId,
+            suid.netId, suid.sysId, (response == ResponseCode::FAIL) ? "unverified" : "home accepted", wuid);
+    }
+
+    writeRF_TSDU_SBF_Imm(iosp.get(), true);
+}
+
+/* Applies a Serving Registration outcome on air. */
+
+bool ControlSignaling::processRoamingOutcome(const network::roaming::SUID& roamSuid, lookups::P25RoamingClient::Outcome outcome,
+    const lookups::P25RoamingClient::Profile& profile, bool onAir)
+{
+    const lookups::P25WuidLookup::SUID suid = { roamSuid.netId, roamSuid.sysId, roamSuid.unitId };
+
+    if (outcome == lookups::P25RoamingClient::Outcome::SUCCESS && profile.access != network::roaming::RoamAccess::NONE) {
+        // a timer refresh changes nothing on air (spec 4.2)
+        if (!onAir) {
+            return true;
+        }
+
+        const uint32_t wuid = admitRoamingSU(suid);
+        if (wuid == 0U) {
+            writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::DENY, 0U, "roaming WUID pool exhausted");
+            return false;
+        }
+
+        writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::ACCEPT, wuid, nullptr);
+
+        // roamer services stay denied until sub-projects 3c-3e; emergency-only access is recorded by the client
+        if (profile.access == network::roaming::RoamAccess::EMERGENCY_ONLY) {
+            LogWarning(LOG_RF, P25_TSDU_STR ", roaming SU limited to emergency access by its home, netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u",
+                suid.netId, suid.sysId, suid.unitId, wuid);
+        }
+
+        // the home reports the radio inhibited: accept, then inhibit the WUID (TIA-102.AABD-B 13.3)
+        if (profile.inhibited) {
+            writeRF_TSDU_Ext_Func(ExtendedFunctions::INHIBIT, WUID_FNE, wuid);
+        }
+
+        // a roamer appears on the network only by its SUID (spec 5)
+        if (m_p25->m_network != nullptr) {
+            m_p25->m_network->announceUnitRegistrationSUID(roamSuid);
+        }
+
+        return true;
+    }
+
+    if (outcome == lookups::P25RoamingClient::Outcome::FAILED) {
+        // a failed timer refresh keeps the roamer until its WUID expires (TIA-102.BACA-B 5.4 footnote 28)
+        if (!onAir) {
+            return true;
+        }
+
+        // a roamer its home still holds (RetryTime after a failed refresh, or the FNE link is down) keeps its
+        //  registration and WUID; the home already authorized it, so it is not denied or demoted to REG_FAIL
+        if (m_p25->m_roamingClient->isRoamer(roamSuid)) {
+            const uint32_t wuid = admitRoamingSU(suid);
+            if (wuid != 0U) {
+                writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::ACCEPT, wuid, nullptr);
+                return true;
+            }
+        }
+
+        // deviation D2: deny by default; REG_FAIL with a local WUID only when roamingAllowUnverified (AABD 6.4.1.1c)
+        if (m_p25->m_roamingAllowUnverified) {
+            const uint32_t wuid = admitRoamingSU(suid);
+            if (wuid != 0U) {
+                writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::FAIL, wuid, nullptr);
+                return true;
+            }
+
+            writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::DENY, 0U, "roaming WUID pool exhausted");
+            return false;
+        }
+
+        releaseRoamingSU(suid);
+        writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::DENY, 0U, "home system unreachable");
+        return false;
+    }
+
+    // a home failure code, or success with no access: REG_DENY (spec 4.1 step 7, deviation D1)
+    releaseRoamingSU(suid);
+    if (onAir) {
+        writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::DENY, 0U,
+            (outcome == lookups::P25RoamingClient::Outcome::SUCCESS) ? "home granted no access" : "home system denied registration");
+    }
+
+    return false;
+}
+
+/* Assigns (or reuses) a roaming SU's WUID and records its unit registration. */
+
+uint32_t ControlSignaling::admitRoamingSU(const lookups::P25WuidLookup::SUID& suid)
+{
+    const uint32_t wuid = m_p25->m_wuidLookup->allocate(suid);
+    if (wuid == 0U) {
+        return 0U;
+    }
+
+    if (m_p25->m_affiliations->isUnitReg(wuid)) {
+        m_p25->m_affiliations->touchUnitRegTimer(wuid);
+    }
+    else {
+        m_p25->m_affiliations->unitReg(wuid);
+    }
+
+    return wuid;
+}
+
+/* Releases a roaming SU's WUID and registration with no on-air or ROAMING message. */
+
+void ControlSignaling::releaseRoamingSU(const lookups::P25WuidLookup::SUID& suid)
+{
+    // forget first, so the release sends no Serving Deregistration
+    const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
+    m_p25->m_roamingClient->forget(roamSuid);
+
+    uint32_t wuid = 0U;
+    if (!m_p25->m_wuidLookup->findBySuid(suid, wuid)) {
+        return;
+    }
+
+    if (m_p25->m_affiliations->isUnitReg(wuid)) {
+        m_p25->m_affiliations->unitDereg(wuid, false);
+    }
+
+    // the de-registration callback normally releases the WUID; release it here when no callback is installed
+    if (m_p25->m_wuidLookup->findBySuid(suid, wuid)) {
+        m_p25->m_wuidLookup->release(wuid);
     }
 }
 

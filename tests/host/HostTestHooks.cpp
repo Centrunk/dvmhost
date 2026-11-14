@@ -604,6 +604,34 @@ void HostTestHooks::p25ClockSiteData(p25::Control& control, uint32_t ms)
     control.clockSiteData(ms);
 }
 
+/* Sets roamingAllowUnverified. */
+
+void HostTestHooks::p25SetRoamingAllowUnverified(p25::Control& control, bool allow)
+{
+    control.m_roamingAllowUnverified = allow;
+}
+
+/* Sets roamingHomeTimeout. */
+
+void HostTestHooks::p25SetRoamingHomeTimeout(p25::Control& control, uint32_t ms)
+{
+    control.m_roamingClient->setHomeTimeout(ms);
+}
+
+/* Gets the P25 roaming client. */
+
+p25::lookups::P25RoamingClient* HostTestHooks::p25RoamingClient(p25::Control& control)
+{
+    return control.m_roamingClient;
+}
+
+/* Sets whether TSBK requests are acknowledged with ACK_RSP_FNE. */
+
+void HostTestHooks::p25SetAckTSBKRequests(p25::Control& control, bool ack)
+{
+    control.m_ackTSBKRequests = ack;
+}
+
 /* Writes an RF voice LDU1 to the network using the given link control. */
 
 void HostTestHooks::p25WriteVoiceNetwork(p25::Control& control, const p25::lc::LC& lc)

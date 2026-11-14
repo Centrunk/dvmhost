@@ -345,6 +345,13 @@ protocols:
         # Last WUID of the inclusive pool assigned to roaming SUs (decimal, roamingWuidStart - 16777211;
         #   higher WUIDs are reserved). The pool size limits the number of simultaneously registered roaming SUs.
         roamingWuidEnd: 0
+        # Flag indicating whether a roaming SU whose home system cannot be reached (timeout, no route, an FNE link
+        #   without P25 roaming, or no network) is admitted locally with REG_FAIL and a WUID instead of being denied
+        #   with REG_DENY. Such SUs are not authorized by their home system. Only used when allowRoaming is enabled.
+        roamingAllowUnverified: false
+        # Time to wait for the home system's answer to a roaming Serving Registration (milliseconds, greater than 0).
+        #   This is an engineering choice; the standards define no SU wait time for the response.
+        roamingHomeTimeout: 5000
         # Flag indicating whether verbose dumping of P25 data packets is enabled.
         dumpDataPacket: false
         # Flag indicating whether or not this host will repeat P25 data traffic.

@@ -177,6 +177,23 @@ bool P25WuidLookup::findByWuid(uint32_t wuid, SUID& suid) const
     return true;
 }
 
+/* Determines whether a WUID can be assigned to a SUID, without assigning it. */
+
+bool P25WuidLookup::canAllocate(const SUID& suid) const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (m_start == 0U) {
+        return false;
+    }
+
+    if (m_bySuid.find(key(suid)) != m_bySuid.end()) {
+        return true;
+    }
+
+    return (uint64_t)m_byWuid.size() < ((uint64_t)m_end - (uint64_t)m_start + 1U);
+}
+
 /* Determines whether a WUID lies within the configured pool. */
 
 bool P25WuidLookup::isPoolWuid(uint32_t wuid) const

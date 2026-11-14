@@ -79,6 +79,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ackTSBKRequests(true),
     m_allowRoaming(false),
     m_roamingSysIds(),
+    m_roamingAllowUnverified(false),
     m_allowRFGrantTGSteering(false),
     m_disableNetworkHDU(false),
     m_hideRemoteGrantLog(false),
@@ -98,6 +99,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_tidLookup(tidLookup),
     m_affiliations(nullptr),
     m_wuidLookup(nullptr),
+    m_roamingClient(nullptr),
     m_controlChData(),
     m_idenEntry(),
     m_activeTG(),
@@ -178,6 +180,22 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_control = new ControlSignaling(this, dumpTSBKData, debug, verbose);
     m_data = new Data(this, dumpPDUData, repeatPDU, debug, verbose);
 
+    // serving-side P25 roaming (spec 4); the outcome callback answers the SU on air
+    m_roamingClient = new lookups::P25RoamingClient(network::roaming::ROAM_DEFAULT_HOME_TIMEOUT_MS);
+    m_roamingClient->setContextProvider([this](network::roaming::RfssIdentity& serving) { return roamingContext(serving); });
+    m_roamingClient->setSender([this](uint8_t subFunc, const uint8_t* data, uint32_t length) {
+        return m_network != nullptr && m_network->writeRoaming((network::NET_SUBFUNC::ENUM)subFunc, data, length);
+    });
+    m_roamingClient->setOutcomeCallback([this](const network::roaming::SUID& suid, lookups::P25RoamingClient::Outcome outcome,
+        const lookups::P25RoamingClient::Profile& profile, bool onAir) {
+        return m_control->processRoamingOutcome(suid, outcome, profile, onAir);
+    });
+    if (m_network != nullptr) {
+        m_network->setP25RoamingCallback([this](uint8_t subFunc, const uint8_t* data, uint32_t length) {
+            m_roamingClient->processMessage(subFunc, data, length);
+        });
+    }
+
     std::random_device rd;
     std::mt19937 mt(rd());
     m_random = mt;
@@ -200,6 +218,14 @@ Control::~Control()
 
     if (m_wuidLookup != nullptr) {
         delete m_wuidLookup;
+    }
+
+    if (m_network != nullptr) {
+        m_network->setP25RoamingCallback(nullptr);
+    }
+
+    if (m_roamingClient != nullptr) {
+        delete m_roamingClient;
     }
 
     if (m_voice != nullptr) {
@@ -440,6 +466,15 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
     uint32_t roamingWuidEnd = p25Protocol["roamingWuidEnd"].as<uint32_t>(0U);
     configureRoaming(allowRoaming, roamingSysIds, roamingWuidStart, roamingWuidEnd);
 
+    // FAILED Serving Registration policy (deviation D2) and the wait for the home's answer (spec 4.1 step 8, 7)
+    m_roamingAllowUnverified = p25Protocol["roamingAllowUnverified"].as<bool>(false);
+    uint32_t roamingHomeTimeout = p25Protocol["roamingHomeTimeout"].as<uint32_t>(network::roaming::ROAM_DEFAULT_HOME_TIMEOUT_MS);
+    if (roamingHomeTimeout == 0U) {
+        LogWarning(LOG_P25, "roamingHomeTimeout must be greater than 0, using %u ms", network::roaming::ROAM_DEFAULT_HOME_TIMEOUT_MS);
+        roamingHomeTimeout = network::roaming::ROAM_DEFAULT_HOME_TIMEOUT_MS;
+    }
+    m_roamingClient->setHomeTimeout(roamingHomeTimeout);
+
     lc::LC::setSiteData(m_siteData);
     lc::TDULC::setSiteData(m_siteData);
 
@@ -554,6 +589,8 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
         LogInfo("    Allow Roaming: %s", m_allowRoaming ? "yes" : "no");
         if (m_allowRoaming) {
             LogInfo("    Roaming WUID Pool: %u - %u", m_wuidLookup->poolStart(), m_wuidLookup->poolEnd());
+            LogInfo("    Roaming Allow Unverified: %s", m_roamingAllowUnverified ? "yes" : "no");
+            LogInfo("    Roaming Home Timeout: %ums", m_roamingClient->homeTimeout());
             if (m_roamingSysIds.empty()) {
                 LogInfo("    Roaming System IDs: any in WACN $%05X", m_siteData.netId());
             }
@@ -2680,6 +2717,18 @@ bool Control::parseRoamingSysIds(yaml::Node& node, std::vector<uint32_t>& sysIds
     }
 
     return true;
+}
+
+/* Fills the serving RFSS identity and reports whether the FNE link negotiated P25 roaming. */
+
+bool Control::roamingContext(network::roaming::RfssIdentity& serving) const
+{
+    serving.netId = m_siteData.netId();
+    serving.sysId = m_siteData.sysId();
+    serving.rfssId = m_siteData.rfssId();
+
+    // a standalone host or an FNE link without roaming cannot reach a home system (spec 4.6)
+    return m_network != nullptr && m_network->isP25RoamingActive();
 }
 
 /* Helper to process a unit de-registration from the affiliation table. */

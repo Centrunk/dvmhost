@@ -25,6 +25,7 @@
 #include "common/Timer.h"
 #include "p25/Control.h"
 #include "p25/lookups/P25WuidLookup.h"
+#include "p25/lookups/P25RoamingClient.h"
 
 #include <cstdio>
 #include <string>
@@ -506,6 +507,35 @@ namespace p25
              * @param suid SUID (WACN ID, System ID, Unit ID) from the unit registration request.
              */
             void writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID& suid);
+            /**
+             * @brief Writes an abbreviated U_REG_RSP for a roaming SU (TIA-102.AABC-D 6.2.21.1).
+             * @param suid Roaming SUID.
+             * @param response Response code (ResponseCode::ACCEPT, FAIL or DENY).
+             * @param wuid Source Address: the assigned WUID, or 0 ("No one") when none.
+             * @param reason Denial reason for the log, or nullptr.
+             */
+            void writeRF_TSDU_U_Reg_Rsp_Roaming(const lookups::P25WuidLookup::SUID& suid, uint8_t response, uint32_t wuid, const char* reason);
+            /**
+             * @brief Applies a Serving Registration outcome on air (spec 4.1 step 7).
+             * @param suid Roaming SUID.
+             * @param outcome Outcome.
+             * @param profile Service profile from the home.
+             * @param onAir Flag indicating an SU request is waiting for an on-air answer.
+             * @returns bool True if the SU is (still) admitted locally; otherwise, false.
+             */
+            bool processRoamingOutcome(const network::roaming::SUID& suid, lookups::P25RoamingClient::Outcome outcome,
+                const lookups::P25RoamingClient::Profile& profile, bool onAir);
+            /**
+             * @brief Assigns (or reuses) a roaming SU's WUID and records its unit registration.
+             * @param suid Roaming SUID.
+             * @returns uint32_t WUID, or 0 when the pool is exhausted.
+             */
+            uint32_t admitRoamingSU(const lookups::P25WuidLookup::SUID& suid);
+            /**
+             * @brief Releases a roaming SU's WUID and registration with no on-air or ROAMING message.
+             * @param suid Roaming SUID.
+             */
+            void releaseRoamingSU(const lookups::P25WuidLookup::SUID& suid);
             /**
              * @brief Helper to write a unit de-registration acknowledge packet.
              * @param srcId Source Radio ID.

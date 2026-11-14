@@ -11,6 +11,7 @@
 #include "common/p25/lc/tsbk/IOSP_ACK_RSP.h"
 #include "common/p25/lc/tsbk/OSP_LOC_REG_RSP.h"
 #include "common/p25/lc/tsbk/OSP_U_DEREG_ACK.h"
+#include "common/p25/lc/tsbk/OSP_U_REG_CMD.h"
 #include "common/p25/lc/tsbk/IOSP_U_REG.h"
 #include "common/p25/lc/tsbk/TSBKFactory.h"
 #include "common/p25/lc/tsbk/mbt/MBT_OSP_U_REG_RSP.h"
@@ -236,6 +237,42 @@ TEST_CASE("TSBK registration responses", "[p25][tsbk][registration]") {
         iosp.encode(raw, true, true);
 
         const uint8_t expected[8U] = { 0x20U, 0x00U, 0x0FU, 0x42U, 0x40U, 0x00U, 0x00U, 0x00U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_REG_RSP_REG_FAIL_Known_Bytes_Figure_6_2_21_1") {
+        IOSP_U_REG iosp;
+        iosp.setResponse(ResponseCode::FAIL);
+        iosp.setSUIDSysId(0x911U);
+        iosp.setDstId(0x0F4240U);                                                   // Source ID (SUID Unit ID)
+        iosp.setSrcId(9000000U);                                                    // Source Address (local WUID)
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x19U, 0x11U, 0x0FU, 0x42U, 0x40U, 0x89U, 0x54U, 0x40U };
+        CHECK((raw[0U] & 0x3FU) == TSBKO::IOSP_U_REG);
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_REG_CMD_Known_Bytes") {
+        OSP_U_REG_CMD osp;
+        osp.setSrcId(WUID_FNE);
+        osp.setDstId(9000000U);
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        osp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x00U, 0x00U, 0x89U, 0x54U, 0x40U, 0xFFU, 0xFFU, 0xFCU };
+        CHECK((raw[0U] & 0x3FU) == TSBKO::OSP_U_REG_CMD);
         for (uint32_t i = 0U; i < 8U; i++) {
             INFO("octet " << (i + 2U));
             CHECK(raw[i + 2U] == expected[i]);

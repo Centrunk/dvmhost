@@ -45,6 +45,7 @@
 #include "p25/packet/ControlSignaling.h"
 #include "p25/lookups/P25AffiliationLookup.h"
 #include "p25/lookups/P25WuidLookup.h"
+#include "p25/lookups/P25RoamingClient.h"
 #include "modem/Modem.h"
 
 #include <cstdio>
@@ -329,6 +330,7 @@ namespace p25
         bool m_ackTSBKRequests;
         bool m_allowRoaming;
         std::vector<uint32_t> m_roamingSysIds;
+        bool m_roamingAllowUnverified;
         bool m_allowRFGrantTGSteering;
         bool m_disableNetworkHDU;
         bool m_hideRemoteGrantLog;
@@ -350,6 +352,7 @@ namespace p25
         ::lookups::TalkgroupRulesLookup* m_tidLookup;
         lookups::P25AffiliationLookup* m_affiliations;
         lookups::P25WuidLookup* m_wuidLookup;
+        lookups::P25RoamingClient* m_roamingClient;
         ::lookups::VoiceChData m_controlChData;
 
         ::lookups::IdenTable m_idenEntry;
@@ -589,6 +592,13 @@ namespace p25
          * @returns bool True if the key is absent or a list of valid System IDs; otherwise, false.
          */
         static bool parseRoamingSysIds(yaml::Node& node, std::vector<uint32_t>& sysIds);
+
+        /**
+         * @brief Fills the serving RFSS identity (this site) and reports whether the FNE link negotiated P25 roaming.
+         * @param[out] serving Serving RFSS identity.
+         * @returns bool True if a home system can be reached; false for a standalone host or a non-roaming link (spec 4.6).
+         */
+        bool roamingContext(network::roaming::RfssIdentity& serving) const;
 
         /**
          * @brief Helper to process a unit de-registration from the affiliation table.

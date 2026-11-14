@@ -399,6 +399,30 @@ public:
      */
     static void p25ClockSiteData(p25::Control& control, uint32_t ms);
     /**
+     * @brief Sets roamingAllowUnverified.
+     * @param control P25 controller.
+     * @param allow Flag indicating FAILED roamers are admitted with REG_FAIL.
+     */
+    static void p25SetRoamingAllowUnverified(p25::Control& control, bool allow);
+    /**
+     * @brief Sets roamingHomeTimeout.
+     * @param control P25 controller.
+     * @param ms Timeout in milliseconds.
+     */
+    static void p25SetRoamingHomeTimeout(p25::Control& control, uint32_t ms);
+    /**
+     * @brief Gets the P25 roaming client.
+     * @param control P25 controller.
+     * @returns p25::lookups::P25RoamingClient* Roaming client.
+     */
+    static p25::lookups::P25RoamingClient* p25RoamingClient(p25::Control& control);
+    /**
+     * @brief Sets whether TSBK requests are acknowledged with ACK_RSP_FNE (ackRequests).
+     * @param control P25 controller.
+     * @param ack Flag indicating requests are acknowledged.
+     */
+    static void p25SetAckTSBKRequests(p25::Control& control, bool ack);
+    /**
      * @brief Writes an RF voice LDU1 to the network using the given link control.
      * @param control P25 controller.
      * @param lc Link control to place in the RF voice state.

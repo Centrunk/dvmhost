@@ -105,3 +105,18 @@ TEST_CASE("P25 WUID lookup single-ID pool", "[p25][roaming][wuid]") {
     CHECK(lookup.allocate(suid(0x002U, 1U)) == 500U);
     CHECK(lookup.allocate(suid(0x002U, 2U)) == 0U);
 }
+
+TEST_CASE("P25 WUID lookup reports free pool space without allocating", "[p25][roaming][wuid]") {
+    P25WuidLookup lookup;
+    const P25WuidLookup::SUID a = { 0xBB800U, 0x002U, 1001U };
+    const P25WuidLookup::SUID b = { 0xBB800U, 0x002U, 1002U };
+
+    CHECK_FALSE(lookup.canAllocate(a));
+    REQUIRE(lookup.setPool(9000000U, 9000000U));
+    CHECK(lookup.canAllocate(a));
+    CHECK(lookup.count() == 0U);
+
+    REQUIRE(lookup.allocate(a) == 9000000U);
+    CHECK(lookup.canAllocate(a));
+    CHECK_FALSE(lookup.canAllocate(b));
+}
