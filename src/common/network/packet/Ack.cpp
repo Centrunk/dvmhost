@@ -64,9 +64,10 @@ bool Network::PacketHandler::ack(Network* network, uint32_t peerId, uint32_t str
                 uint32_t masterNetId = 0U;
                 uint32_t masterSysId = 0U;
                 if (roaming::RoamingCodec::decodeConfigAck(buffer + 6U, static_cast<uint32_t>(length - 6), capable, masterNetId, masterSysId) && capable) {
-                    network->m_p25RoamingActive = true;
+                    // identity first, so a reader that sees the flag raised also sees the identity
                     network->m_masterP25NetId = masterNetId;
                     network->m_masterP25SysId = masterSysId;
+                    network->m_p25RoamingActive = true;
                     LogInfoEx(LOG_NET, "PEER %u RPTC ACK, P25 roaming negotiated, master netId = $%05X, sysId = $%03X", network->m_peerId,
                         masterNetId, masterSysId);
                 }

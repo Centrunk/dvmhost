@@ -19,12 +19,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <cstring>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 using namespace network;
@@ -80,6 +82,16 @@ public:
      * @param active True to mark roaming negotiated.
      */
     void setP25RoamingActiveForTest(bool active) { m_p25RoamingActive = active; }
+    /**
+     * @brief Gets whether the negotiated roaming state shared between the receive and the clocking threads is atomic.
+     * @returns bool True if the negotiated flag and the master WACN ID and System ID are std::atomic.
+     */
+    static bool roamingStateIsAtomicForTest()
+    {
+        return std::is_same<decltype(m_p25RoamingActive), std::atomic<bool>>::value &&
+            std::is_same<decltype(m_masterP25NetId), std::atomic<uint32_t>>::value &&
+            std::is_same<decltype(m_masterP25SysId), std::atomic<uint32_t>>::value;
+    }
     /**
      * @brief Gets the allow activity transfer flag for testing purposes.
      * @returns bool True if activity transfer is allowed, false otherwise.
@@ -985,6 +997,12 @@ TEST_CASE("Disabled open does not consume the initial connection", "[network][lo
 
     REQUIRE(network.readyToAttempt());
     network.close();
+}
+
+TEST_CASE("Network keeps the negotiated P25 roaming state in atomics", "[network][roaming]")
+{
+    // written by the receive path (RPTC ACK) and read by the host clock and other threads
+    CHECK(TestableNetwork::roamingStateIsAtomicForTest());
 }
 
 TEST_CASE("Network negotiates P25 roaming from the config ack", "[network][loopback][roaming]")

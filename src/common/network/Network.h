@@ -27,6 +27,7 @@
 #include "common/lookups/TalkgroupRulesLookup.h"
 #include "common/p25/kmm/KeysetItem.h"
 
+#include <atomic>
 #include <string>
 #include <cstdint>
 #include <functional>
@@ -588,12 +589,16 @@ namespace network
         uint32_t m_p25RoamingSysId;
         /** @brief Offered P25 RFSS ID. */
         uint8_t m_p25RoamingRfssId;
-        /** @brief Flag indicating the master answered P25 roaming capable to this peer's offer. */
-        bool m_p25RoamingActive;
+        /**
+         * @brief Flag indicating the master answered P25 roaming capable to this peer's offer.
+         *  (Written by the RPTC ACK receive path and read from other threads; the master identity is stored before
+         *  the flag is raised and the flag is cleared before the identity.)
+         */
+        std::atomic<bool> m_p25RoamingActive;
         /** @brief Master P25 WACN ID from the RPTC ACK. */
-        uint32_t m_masterP25NetId;
+        std::atomic<uint32_t> m_masterP25NetId;
         /** @brief Master P25 System ID from the RPTC ACK. */
-        uint32_t m_masterP25SysId;
+        std::atomic<uint32_t> m_masterP25SysId;
 
         /**
          * @brief P25 Roaming Message Callback.
