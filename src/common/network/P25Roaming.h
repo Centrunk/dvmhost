@@ -272,6 +272,116 @@ namespace network
              */
             bool operator==(const RfssIdentity& other) const;
         };
+
+        // ---------------------------------------------------------------------------
+        //  Structure Declaration
+        // ---------------------------------------------------------------------------
+
+        /**
+         * @brief Decoded ROAMING mobility message (spec 3.5). Fields that a sub-function does not carry are ignored.
+         * @ingroup network_core
+         */
+        struct DVM_COMMON_API RoamingMessage {
+            uint8_t subFunc = 0U;                       //!< ROAMING sub-function (NET_SUBFUNC::ROAM_*).
+            uint8_t version = ROAM_VERSION;             //!< Message version.
+            uint8_t hopCount = ROAM_DEFAULT_HOP_COUNT;  //!< Remaining FNE hops.
+            uint32_t txnId = 0U;                        //!< Transaction ID chosen by the request originator.
+            SUID suid;                                  //!< Subject SUID.
+            RfssIdentity serving;                       //!< Serving RFSS identity (SERVING_REG, SERVING_DEREG).
+            uint8_t presence = 0U;                      //!< Presence (RoamPresence::E).
+            uint8_t result = 0U;                        //!< Result code (RoamResult::E).
+            uint32_t expires = 0U;                      //!< Home registration lifetime in seconds.
+            uint8_t access = 0U;                        //!< Access (RoamAccess::E).
+            uint8_t flags = 0U;                         //!< Service flags (ROAM_FLAG_RADIO_INHIBITED).
+            uint8_t qualifier = 0U;                     //!< Home Deregistration qualifier (RoamQualifier::E).
+            uint8_t queryType = 0U;                     //!< Query type (RoamQueryType::E).
+            uint8_t interested = 0U;                    //!< 1 if the serving side still needs the SU registered.
+            uint8_t rejectedSubFunc = 0U;               //!< Rejected request sub-function (ROAM_GEN_RSP).
+        };
+
+        // ---------------------------------------------------------------------------
+        //  Class Declaration
+        // ---------------------------------------------------------------------------
+
+        /**
+         * @brief Encodes and decodes the DVM P25 roaming wire formats (spec 3). Decoders are bounded:
+         *  every length is checked before any field is read, and outputs are written only on success.
+         * @ingroup network_core
+         */
+        class DVM_COMMON_API RoamingCodec {
+        public:
+            /**
+             * @brief Gets the exact length of a ROAMING message.
+             * @param subFunc ROAMING sub-function.
+             * @returns uint32_t Length in bytes, or 0 for an unknown sub-function.
+             */
+            static uint32_t messageLength(uint8_t subFunc);
+            /**
+             * @brief Classifies a ROAMING sub-function; even codes are requests, odd codes are responses.
+             * @param subFunc ROAMING sub-function.
+             * @returns bool True for a request; otherwise, false.
+             */
+            static bool isRequest(uint8_t subFunc);
+            /**
+             * @brief Encodes a ROAMING message.
+             * @param msg Message to encode.
+             * @param[out] buffer Output buffer.
+             * @param bufferLen Output buffer length in bytes.
+             * @returns uint32_t Bytes written, or 0 for an unknown sub-function, out-of-range field or short buffer.
+             */
+            static uint32_t encode(const RoamingMessage& msg, uint8_t* buffer, uint32_t bufferLen);
+            /**
+             * @brief Decodes a ROAMING message.
+             * @param subFunc ROAMING sub-function from the FNE header.
+             * @param[in] data Message bytes.
+             * @param length Available length in bytes; must equal messageLength(subFunc).
+             * @param[out] msg Decoded message; written only when the result is RoamDecode::OK.
+             * @returns RoamDecode::E Decode status.
+             */
+            static RoamDecode::E decode(uint8_t subFunc, const uint8_t* data, uint32_t length, RoamingMessage& msg);
+            /**
+             * @brief Decodes only the ROAMING common header (used to answer an unknown request).
+             * @param[in] data Message bytes.
+             * @param length Available length in bytes; at least ROAM_HEADER_LEN.
+             * @param[out] version Message version.
+             * @param[out] hopCount Hop count.
+             * @param[out] txnId Transaction ID.
+             * @returns RoamDecode::E RoamDecode::OK or RoamDecode::MALFORMED_LENGTH.
+             */
+            static RoamDecode::E decodeHeader(const uint8_t* data, uint32_t length, uint8_t& version, uint8_t& hopCount, uint32_t& txnId);
+
+        private:
+            /**
+             * @brief Writes a SUID field group.
+             * @param suid SUID to write.
+             * @param[out] buffer Output buffer.
+             * @param offset Byte offset of the group.
+             */
+            static void writeSUID(const SUID& suid, uint8_t* buffer, uint32_t offset);
+            /**
+             * @brief Reads and range-checks a SUID field group.
+             * @param[in] buffer Input buffer (length already validated).
+             * @param offset Byte offset of the group.
+             * @param[out] suid Decoded SUID.
+             * @returns bool True if the WACN ID and System ID are in range; otherwise, false.
+             */
+            static bool readSUID(const uint8_t* buffer, uint32_t offset, SUID& suid);
+            /**
+             * @brief Writes an RFSS identity field group.
+             * @param rfss RFSS identity to write.
+             * @param[out] buffer Output buffer.
+             * @param offset Byte offset of the group.
+             */
+            static void writeRfss(const RfssIdentity& rfss, uint8_t* buffer, uint32_t offset);
+            /**
+             * @brief Reads and range-checks an RFSS identity field group.
+             * @param[in] buffer Input buffer (length already validated).
+             * @param offset Byte offset of the group.
+             * @param[out] rfss Decoded RFSS identity.
+             * @returns bool True if the WACN ID and System ID are in range; otherwise, false.
+             */
+            static bool readRfss(const uint8_t* buffer, uint32_t offset, RfssIdentity& rfss);
+        };
     } // namespace roaming
 } // namespace network
 
