@@ -83,6 +83,14 @@ void FNETestHooks::addGroupAffiliation(TrafficNetwork& network, uint32_t sitePee
     affiliations->groupAff(unitId, talkgroupId);
 }
 
+/* Returns the affiliation lookup owned by a site peer. */
+
+std::shared_ptr<fne_lookups::AffiliationLookup> FNETestHooks::peerAffiliations(TrafficNetwork& network,
+    uint32_t sitePeerId)
+{
+    return network.getPeerAffiliations(sitePeerId);
+}
+
 /* Captures peer IDs selected by subsequent test writes. */
 
 void FNETestHooks::capturePeerWrites(TrafficNetwork& network, std::vector<uint32_t>& peerIds)

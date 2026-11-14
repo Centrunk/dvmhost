@@ -134,6 +134,14 @@ public:
     static void addGroupAffiliation(network::TrafficNetwork& network, uint32_t sitePeerId,
         uint32_t unitId, uint32_t talkgroupId);
     /**
+     * @brief Returns the affiliation lookup owned by a site peer.
+     * @param network The TrafficNetwork instance.
+     * @param sitePeerId Site peer that owns the lookup.
+     * @returns std::shared_ptr<fne_lookups::AffiliationLookup> Peer lookup, or nullptr if the peer has none.
+     */
+    static std::shared_ptr<fne_lookups::AffiliationLookup> peerAffiliations(network::TrafficNetwork& network,
+        uint32_t sitePeerId);
+    /**
      * @brief Captures peer IDs selected by subsequent test writes.
      * @param network The TrafficNetwork instance.
      * @param[out] peerIds Destination peer IDs selected for writes.

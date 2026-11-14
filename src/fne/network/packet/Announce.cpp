@@ -174,7 +174,7 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                         std::unordered_map<uint32_t, uint32_t> affiliations;
                         affiliations.reserve(len);
                         uint32_t offs = 4U;
-                        for (uint32_t i = 0U; i < len; i++) {
+                        for (uint32_t i = 0U; i < len; i++, offs += 8U) {
                             const uint32_t srcId = GET_UINT24(req->buffer, offs);
                             const uint32_t dstId = GET_UINT24(req->buffer, offs + 4U);
 
@@ -184,7 +184,6 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                             }
 
                             affiliations[srcId] = dstId;
-                            offs += 8U;
                         }
 
                         network->replacePeerAffiliations(peerId, affiliations);
@@ -230,7 +229,7 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                         std::vector<uint32_t> registrations;
                         registrations.reserve(len);
                         uint32_t offs = 4U;
-                        for (uint32_t i = 0U; i < len; i++) {
+                        for (uint32_t i = 0U; i < len; i++, offs += 3U) {
                             const uint32_t srcId = GET_UINT24(req->buffer, offs);
 
                             if (srcId == P25DEF::WUID_FNE) {
@@ -239,7 +238,6 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                             }
 
                             registrations.push_back(srcId);
-                            offs += 3U;
                         }
 
                         network->replacePeerUnitRegistrations(peerId, registrations, ssrc);

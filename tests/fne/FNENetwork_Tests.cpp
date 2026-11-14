@@ -987,6 +987,72 @@ TEST_CASE("FNE private-call registration snapshots and peer teardown clean route
     CHECK(FNETestHooks::findUnitRoute(harness.traffic, 2003U) == 0U);
 }
 
+TEST_CASE("FNE bulk affiliation snapshots keep entries after an ignored FNE source ID",
+    "[fne][announce][affiliations]")
+{
+    constexpr uint32_t PEER_ID = 1001U;
+    constexpr uint32_t UNIT_A = 2001U;
+    constexpr uint32_t UNIT_B = 2002U;
+    constexpr uint32_t WUID_FNE = 0xFFFFFCU;
+
+    FNEHarness harness;
+    FNETestHooks::addPeer(harness.traffic, PEER_ID, network::NET_STAT_RUNNING, true);
+
+    // a stale affiliation proves the snapshot still replaces the peer's table
+    FNETestHooks::addGroupAffiliation(harness.traffic, PEER_ID, 2999U, 9U);
+
+    std::vector<uint8_t> snapshot(4U + (3U * 8U), 0U);
+    SET_UINT32(3U, snapshot.data(), 0U);
+    SET_UINT24(UNIT_A, snapshot.data(), 4U);
+    SET_UINT24(1U, snapshot.data(), 8U);
+    SET_UINT24(WUID_FNE, snapshot.data(), 12U);
+    SET_UINT24(2U, snapshot.data(), 16U);
+    SET_UINT24(UNIT_B, snapshot.data(), 20U);
+    SET_UINT24(3U, snapshot.data(), 24U);
+
+    FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+        network::NET_SUBFUNC::ANNC_SUBFUNC_AFFILS, PEER_ID, snapshot);
+
+    std::shared_ptr<fne_lookups::AffiliationLookup> aff = FNETestHooks::peerAffiliations(harness.traffic, PEER_ID);
+    REQUIRE(aff != nullptr);
+    CHECK(aff->isGroupAff(UNIT_A, 1U));
+    CHECK(aff->isGroupAff(UNIT_B, 3U));
+    CHECK_FALSE(aff->isGroupAff(WUID_FNE, 2U));
+    CHECK_FALSE(aff->isGroupAff(2999U, 9U));
+}
+
+TEST_CASE("FNE bulk unit registration snapshots keep entries after an ignored FNE source ID",
+    "[fne][announce][registrations]")
+{
+    constexpr uint32_t PEER_ID = 1001U;
+    constexpr uint32_t UNIT_A = 2001U;
+    constexpr uint32_t UNIT_B = 2002U;
+    constexpr uint32_t WUID_FNE = 0xFFFFFCU;
+
+    FNEHarness harness;
+    FNETestHooks::addPeer(harness.traffic, PEER_ID, network::NET_STAT_RUNNING, true);
+    FNETestHooks::registerP25Unit(harness.traffic, PEER_ID, 2999U);
+
+    std::vector<uint8_t> snapshot(4U + (3U * 3U), 0U);
+    SET_UINT32(3U, snapshot.data(), 0U);
+    SET_UINT24(UNIT_A, snapshot.data(), 4U);
+    SET_UINT24(WUID_FNE, snapshot.data(), 7U);
+    SET_UINT24(UNIT_B, snapshot.data(), 10U);
+
+    FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+        network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS, PEER_ID, snapshot);
+
+    std::shared_ptr<fne_lookups::AffiliationLookup> aff = FNETestHooks::peerAffiliations(harness.traffic, PEER_ID);
+    REQUIRE(aff != nullptr);
+    CHECK(aff->isUnitReg(UNIT_A));
+    CHECK(aff->isUnitReg(UNIT_B));
+    CHECK_FALSE(aff->isUnitReg(WUID_FNE));
+    CHECK_FALSE(aff->isUnitReg(2999U));
+    CHECK(FNETestHooks::findUnitRoute(harness.traffic, UNIT_A) == PEER_ID);
+    CHECK(FNETestHooks::findUnitRoute(harness.traffic, UNIT_B) == PEER_ID);
+    CHECK(FNETestHooks::findUnitRoute(harness.traffic, WUID_FNE) == 0U);
+}
+
 TEST_CASE("FNE private-call grants target only the registered next hop",
     "[fne][callhandler][routing][u2u][grants]")
 {
