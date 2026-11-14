@@ -412,6 +412,38 @@ public:
      */
     static void p25WriteDataNetwork(p25::Control& control, const p25::data::DataHeader& header, bool extendedAddress);
     /**
+     * @brief Processes RF SNDCP control data using the given data header.
+     * @param control P25 controller.
+     * @param header PDU data header to place in the RF assembler.
+     * @param[in] userData SNDCP control PDU user data.
+     * @returns bool True if the SNDCP control data was accepted for forwarding; otherwise, false.
+     */
+    static bool p25ProcessSNDCPControl(p25::Control& control, const p25::data::DataHeader& header, const uint8_t* userData);
+    /**
+     * @brief Processes an RF conventional data registration using the given data header.
+     * @param control P25 controller.
+     * @param header PDU data header to place in the RF assembler.
+     * @param extendedAddress Flag indicating the PDU uses extended addressing.
+     * @param[in] userData Conventional registration PDU user data.
+     * @param length Length of the user data in bytes.
+     * @returns bool True if the registration was accepted for forwarding; otherwise, false.
+     */
+    static bool p25ProcessConvDataReg(p25::Control& control, const p25::data::DataHeader& header, bool extendedAddress,
+        const uint8_t* userData, uint32_t length);
+    /**
+     * @brief Checks whether local SNDCP state exists for a logical link ID.
+     * @param control P25 controller.
+     * @param llId Logical link ID.
+     * @returns bool True if SNDCP state is initialized for the LLID; otherwise, false.
+     */
+    static bool p25IsSNDCPInitialized(p25::Control& control, uint32_t llId);
+    /**
+     * @brief Sets whether SNDCP is supported.
+     * @param control P25 controller.
+     * @param support Flag indicating whether SNDCP is supported.
+     */
+    static void p25SetSNDCPSupport(p25::Control& control, bool support);
+    /**
      * @brief Sets whether LLA is required before unit registration.
      * @param control P25 controller.
      * @param required Flag indicating whether LLA is required.

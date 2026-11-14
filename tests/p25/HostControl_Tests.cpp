@@ -19,6 +19,8 @@
 #include "common/p25/P25Defines.h"
 #include "common/p25/data/Assembler.h"
 #include "common/p25/data/DataHeader.h"
+#include "common/p25/data/ConventionalRegistration.h"
+#include "common/p25/sndcp/SNDCPCtxActRequest.h"
 #include "common/p25/P25Utils.h"
 #include "common/Utils.h"
 #include "common/p25/data/LowSpeedData.h"
@@ -2692,6 +2694,58 @@ static uint32_t registerUnit(P25HostHarness& harness, uint32_t netId, uint32_t s
     REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
     REQUIRE(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
     return getUint24(rsp, 7U);
+}
+
+TEST_CASE("P25 PDU-borne data requests from a roaming WUID are not served locally", "[p25][host][roaming][data]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    P25HostHarness harness(true, true, 0U, 1U, false, false, true);
+    prepareRoaming(harness, true, {});
+    HostTestHooks::p25SetSNDCPSupport(*harness.m_control, true);
+
+    SECTION("SNDCP_Context_Activation_Creates_No_State") {
+        uint8_t userData[p25::defines::P25_PDU_CONFIRMED_LENGTH_BYTES];
+        ::memset(userData, 0x00U, sizeof(userData));
+        p25::sndcp::SNDCPCtxActRequest request;
+        request.setNSAPI(1U);
+        request.setNAT(p25::defines::SNDCPNAT::IPV4_DYN_ADDR);
+        request.encode(userData);
+
+        p25::data::DataHeader header;
+        header.setFormat(p25::defines::PDUFormatType::CONFIRMED);
+        header.setSAP(p25::defines::PDUSAP::SNDCP_CTRL_DATA);
+
+        header.setLLId(9000000U);
+        CHECK_FALSE(HostTestHooks::p25ProcessSNDCPControl(*harness.m_control, header, userData));
+        CHECK_FALSE(HostTestHooks::p25IsSNDCPInitialized(*harness.m_control, 9000000U));
+
+        // a Home SU is unaffected
+        header.setLLId(1001U);
+        CHECK(HostTestHooks::p25ProcessSNDCPControl(*harness.m_control, header, userData));
+        CHECK(HostTestHooks::p25IsSNDCPInitialized(*harness.m_control, 1001U));
+    }
+
+    SECTION("Conventional_Data_Registration_Not_Forwarded") {
+        // CONNECT registration: octet 0 type (b7-b4), octets 1-3 LLID, octets 8-11 IPv4 address
+        uint8_t userData[p25::data::ConventionalRegistration::LENGTH];
+        ::memset(userData, 0x00U, sizeof(userData));
+        userData[0U] = (uint8_t)(p25::defines::PDURegType::CONNECT << 4);
+
+        p25::data::DataHeader header;
+        header.setFormat(p25::defines::PDUFormatType::CONFIRMED);
+        header.setSAP(p25::defines::PDUSAP::CONV_DATA_REG);
+
+        SET_UINT24(9000000U, userData, 1U);
+        header.setLLId(9000000U);
+        CHECK_FALSE(HostTestHooks::p25ProcessConvDataReg(*harness.m_control, header, false, userData, sizeof(userData)));
+
+        // a Home SU is unaffected
+        SET_UINT24(1001U, userData, 1U);
+        header.setLLId(1001U);
+        CHECK(HostTestHooks::p25ProcessConvDataReg(*harness.m_control, header, false, userData, sizeof(userData)));
+    }
+
+    p25::lc::TSBK::setSiteData(previous);
 }
 
 TEST_CASE("P25 periodic network announcements never carry roaming WUIDs", "[p25][host][roaming][announce]")

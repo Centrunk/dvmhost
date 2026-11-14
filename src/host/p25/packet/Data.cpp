@@ -936,6 +936,13 @@ bool Data::processConvDataReg(const uint8_t* pduUserData, uint32_t length)
         return false;
     }
 
+    // roaming SU WUIDs are local only until roaming identity translation exists; data registration is FNE-owned
+    if (m_p25->m_wuidLookup->isPoolWuid(registration.llId)) {
+        LogWarning(LOG_RF, P25_PDU_STR ", CONV_DATA_REG (Conventional Data Registration) denial, roaming unit packet data not supported (requires roaming translation), llId = %u",
+            registration.llId);
+        return false;
+    }
+
     // authorization and the ACCEPT/DENY response are FNE-owned -- returning true
     // here only permits this validated request to be forwarded to that service
     return true;
@@ -956,6 +963,13 @@ bool Data::processSNDCPControl(const uint8_t* pduUserData)
     }
 
     uint32_t llId = m_rfAssembler->dataHeader.getLLId();
+
+    // roaming SU WUIDs are local only until roaming identity translation exists; no SNDCP state is created for one
+    if (m_p25->m_wuidLookup->isPoolWuid(llId)) {
+        LogWarning(LOG_RF, P25_PDU_STR ", SNDCP_CTRL_DATA (SNDCP Control Data) denial, roaming unit packet data not supported (requires roaming translation), llId = %u",
+            llId);
+        return false;
+    }
 
     switch (packet->getPDUType()) {
         case SNDCP_PDUType::ACT_TDS_CTX:

@@ -627,6 +627,39 @@ void HostTestHooks::p25WriteDataNetwork(p25::Control& control, const p25::data::
     control.m_data->writeNetwork(0U, data, p25::defines::P25_PDU_FEC_LENGTH_BYTES, true);
 }
 
+/* Processes RF SNDCP control data using the given data header. */
+
+bool HostTestHooks::p25ProcessSNDCPControl(p25::Control& control, const p25::data::DataHeader& header, const uint8_t* userData)
+{
+    control.m_data->m_rfAssembler->dataHeader = header;
+    control.m_data->m_rfAssembler->setExtendedAddress(false);
+    return control.m_data->processSNDCPControl(userData);
+}
+
+/* Processes an RF conventional data registration using the given data header. */
+
+bool HostTestHooks::p25ProcessConvDataReg(p25::Control& control, const p25::data::DataHeader& header, bool extendedAddress,
+    const uint8_t* userData, uint32_t length)
+{
+    control.m_data->m_rfAssembler->dataHeader = header;
+    control.m_data->m_rfAssembler->setExtendedAddress(extendedAddress);
+    return control.m_data->processConvDataReg(userData, length);
+}
+
+/* Checks whether local SNDCP state exists for a logical link ID. */
+
+bool HostTestHooks::p25IsSNDCPInitialized(p25::Control& control, uint32_t llId)
+{
+    return control.m_data->isSNDCPInitialized(llId);
+}
+
+/* Sets whether SNDCP is supported. */
+
+void HostTestHooks::p25SetSNDCPSupport(p25::Control& control, bool support)
+{
+    control.m_sndcpSupport = support;
+}
+
 /* Injects an independently encoded raw TSBK into P25 control signaling. */
 
 bool HostTestHooks::p25ProcessRawTSBK(p25::Control& control, const uint8_t* raw)
