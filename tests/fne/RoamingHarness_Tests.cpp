@@ -280,7 +280,7 @@ TEST_CASE("Multi-FNE harness carries Serving Registration, refresh, Home Deregis
     CHECK(fneB.service.homeRecords().empty());
 }
 
-TEST_CASE("Multi-FNE harness denies an unknown home unit and fails over a dropped link", "[fne][roaming][harness]")
+TEST_CASE("Multi-FNE harness denies an unknown home unit and fails a request whose link drops while pending", "[fne][roaming][harness]")
 {
     g_now = 0U;
 
@@ -306,15 +306,36 @@ TEST_CASE("Multi-FNE harness denies an unknown home unit and fails over a droppe
     CHECK(hostA.outcomes[0U] == P25RoamingClient::Outcome::REJECTED);
     CHECK(fneB.service.homeRecords().empty());
 
-    // with the inter-FNE link down, FNE A completes the request as FAILED by silence; the host times out (spec 6)
-    fneA.service.linkDown(aToB);
+    // the forwarded Serving Registration is parked on the A-to-B link (never reaches the home) so it stays pending at A
+    uint32_t parked = 0U;
+    fneA.links[aToB.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) {
+        (void)s;
+        (void)d;
+        (void)l;
+        parked++;
+    };
     const SUID roamer = { 0xDEE00U, 0x911U, 0x0F4240U };
     fneB.authorized.insert(0x0F4240U);
     REQUIRE(hostA.client.requestRegistration(roamer, true) == P25RoamingClient::RequestResult::SENT);
+    CHECK(parked == 1U);
+    CHECK(fneA.service.pendingCount() == 1U);
     CHECK(hostA.outcomes.size() == 1U);
-    hostA.client.clock(5000U);
+
+    // dropping the link completes the pending transaction at FNE A (spec 6); FAILED is a local outcome that is never
+    // encoded, so FNE A sends nothing and the host is still waiting
+    fneA.service.linkDown(aToB);
+    CHECK(fneA.service.pendingCount() == 0U);
+    CHECK(parked == 1U);
+    CHECK(hostA.outcomes.size() == 1U);
+    CHECK(hostA.client.isPending(roamer));
+
+    // the host reaches FAILED only through its own roamingHomeTimeout (5000 ms here)
+    hostA.client.clock(4999U);
+    CHECK(hostA.outcomes.size() == 1U);
+    hostA.client.clock(1U);
     REQUIRE(hostA.outcomes.size() == 2U);
     CHECK(hostA.outcomes[1U] == P25RoamingClient::Outcome::FAILED);
+    CHECK_FALSE(hostA.client.isPending(roamer));
     CHECK(hostA.client.requestRegistration(roamer, true) == P25RoamingClient::RequestResult::HELD_OFF);
 }
 
@@ -339,8 +360,21 @@ TEST_CASE("Multi-FNE harness moves a roamer between two serving RFSSs behind one
     HarnessHost host1(RfssIdentity{ 0xDEE00U, 0x13BU, 0x01U });
     HarnessHost host2(RfssIdentity{ 0xDEE00U, 0x13BU, 0x02U });
     fneA.links[aToB.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneB.service.process(bToA, s, d, l, g_now); };
-    fneB.links[bToA.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneA.service.process(aToB, s, d, l, g_now); };
-    fneA.links[aHost1.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { host1.client.processMessage(s, d, l); };
+    // count the Home Deregistrations that cross the home-to-A link and the A-to-host-1 link so the sender is proven
+    uint32_t homeDeregsBToA = 0U;
+    uint32_t homeDeregsAToHost1 = 0U;
+    fneB.links[bToA.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) {
+        if (s == NET_SUBFUNC::ROAM_HOME_DEREG) {
+            homeDeregsBToA++;
+        }
+        fneA.service.process(aToB, s, d, l, g_now);
+    };
+    fneA.links[aHost1.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) {
+        if (s == NET_SUBFUNC::ROAM_HOME_DEREG) {
+            homeDeregsAToHost1++;
+        }
+        host1.client.processMessage(s, d, l);
+    };
     fneA.links[aHost2.key()] = [&](uint8_t s, const uint8_t* d, uint32_t l) { host2.client.processMessage(s, d, l); };
     host1.deliver = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneA.service.process(aHost1, s, d, l, g_now); };
     host2.deliver = [&](uint8_t s, const uint8_t* d, uint32_t l) { fneA.service.process(aHost2, s, d, l, g_now); };
@@ -360,6 +394,8 @@ TEST_CASE("Multi-FNE harness moves a roamer between two serving RFSSs behind one
     CHECK(host1.homeDeregs[0U] == RoamQualifier::ROAMED);
     CHECK_FALSE(host1.client.isRoamer(roamer));
     CHECK(host2.homeDeregs.empty());
+    CHECK(homeDeregsBToA == 0U);
+    CHECK(homeDeregsAToHost1 == 1U);
     REQUIRE(fneA.service.servingRecords().size() == 1U);
     CHECK(fneA.service.servingRecords()[0U].link == aHost2);
     REQUIRE(fneB.service.homeRecords().size() == 1U);
