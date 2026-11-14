@@ -237,7 +237,7 @@ void RoamingService::process(const RoamingLink& ingress, uint8_t subFunc, const 
             handleRequest(actions, ingress, msg, nowMs, authorized, localPeer);
         }
         else {
-            handleResponse(actions, ingress, msg);
+            handleResponse(actions, ingress, msg, nowMs);
         }
     }
 
@@ -620,8 +620,11 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
         msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.serving.netId, msg.serving.sysId, msg.serving.rfssId, msg.txnId, m_expires);
     queueSend(actions, ingress, successResponse(msg));
 
-    // a unit is registered at only one serving RFSS at a time (BACA 5.1, 5.5.1(2a)(iii))
-    if (hadPrevious && (!(previous.serving == msg.serving) || previous.link != ingress)) {
+    // A unit is registered at only one serving RFSS at a time (BACA 5.1, 5.5.1(2a)(iii)). The home deregisters the
+    // previous serving RFSS only when it sits behind a different link. When both sit behind the same link, the
+    // success and a Home Deregistration would share that link and could arrive in either order (UDP), so the
+    // downstream FNE whose served-roamer record changes link deregisters the previous RFSS instead (handleResponse).
+    if (hadPrevious && previous.link != ingress) {
         sendHomeDereg(actions, previous.link, msg.suid, RoamQualifier::ROAMED, nowMs);
     }
 
@@ -759,7 +762,7 @@ void RoamingService::sendHomeDereg(ActionList& actions, const RoamingLink& link,
 
 /* Matches and relays (or consumes) a response. */
 
-void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from, const RoamingMessage& msg)
+void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from, const RoamingMessage& msg, uint64_t nowMs)
 {
     auto it = m_pending.find(std::make_pair(from.key(), msg.txnId));
     if (it == m_pending.end()) {
@@ -779,7 +782,8 @@ void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from
 
     m_pending.erase(it);
 
-    // a response to a request originated here completes the transaction
+    // A response to a request originated here completes the transaction. It never touches the served-roamer table,
+    // so a late answer from a previous serving link cannot release the roamer's new record.
     if (!pending.ingress.valid()) {
         LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X, txnId = %08X, result = $%02X", linkName(from), from.peerId,
             msg.subFunc, msg.txnId, msg.result);
@@ -793,6 +797,15 @@ void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from
     }
 
     if (msg.subFunc == NET_SUBFUNC::ROAM_SERVING_REG_RSP && msg.result == RoamResult::SUCCESS) {
+        // One serving RFSS at a time (BACA 5.1): the home deregisters a previous serving RFSS only across a different
+        // link, so when the roamer's served record moves from one link of this FNE to another, this FNE deregisters
+        // the previous serving side itself. A record already on the relay link means the previous RFSS is further
+        // downstream, where the next FNE applies the same rule.
+        auto served = m_serving.find(pending.suid);
+        if (served != m_serving.end() && served->second.link != pending.ingress) {
+            sendHomeDereg(actions, served->second.link, msg.suid, RoamQualifier::ROAMED, nowMs);
+        }
+
         ServingRecord rec;
         rec.suid = msg.suid;
         rec.link = pending.ingress;

@@ -258,6 +258,36 @@ namespace {
         FAIL("no matching send");
         return RoamingMessage();
     }
+
+    /**
+     * @brief Delivers, in capture order, every send a fake host made on one link to another service and removes those
+     *  sends from the capture.
+     * @param from Fake host whose captured sends are delivered.
+     * @param egress Link the sends were made on.
+     * @param to Receiving service.
+     * @param ingress Link on which the receiving service sees them arrive.
+     * @param nowMs Current time in milliseconds.
+     * @returns size_t Number of messages delivered.
+     */
+    size_t pump(FakeRoamingHost& from, const RoamingLink& egress, RoamingService& to, const RoamingLink& ingress, uint64_t nowMs)
+    {
+        std::vector<SentMessage> moving;
+        for (auto it = from.sent.begin(); it != from.sent.end();) {
+            if (it->link == egress) {
+                moving.push_back(*it);
+                it = from.sent.erase(it);
+            }
+            else {
+                ++it;
+            }
+        }
+
+        for (const SentMessage& sent : moving) {
+            to.process(ingress, sent.subFunc, sent.data.data(), (uint32_t)sent.data.size(), nowMs);
+        }
+
+        return moving.size();
+    }
 } // namespace
 
 TEST_CASE("RoamingService routes Serving Registration toward the home system", "[fne][roaming][service][routing]")
@@ -496,6 +526,18 @@ TEST_CASE("RoamingService home procedures", "[fne][roaming][service][home]")
         CHECK(home.pendingCount() == 0U);
     }
 
+    SECTION("Move_Behind_The_Same_Link_Leaves_The_Home_Deregistration_To_The_Serving_FNE") {
+        const RfssIdentity serving13B2 = { 0xDEE00U, 0x13BU, 0x02U };
+        deliver(home, FNE_A, servingReg(ROAMER, SERVING_13B, 0x2012U), 0U);
+        deliver(home, FNE_A, servingReg(ROAMER, serving13B2, 0x2013U), 0U);
+        CHECK(countSent(host, FNE_A, NET_SUBFUNC::ROAM_SERVING_REG_RSP) == 2U);
+        CHECK(countSent(host, FNE_A, NET_SUBFUNC::ROAM_HOME_DEREG) == 0U);
+        CHECK(home.pendingCount() == 0U);
+        REQUIRE(home.homeRecords().size() == 1U);
+        CHECK(home.homeRecords()[0U].serving == serving13B2);
+        CHECK(host.routes[ROAMER.pack()] == FNE_A);
+    }
+
     SECTION("Home_Site_Registration_Is_Released_Silently") {
         host.localPeers[0x0F4240U] = HOME_SITE.peerId;
         deliver(home, FNE_A, servingReg(ROAMER, SERVING_13B, 0x2008U), 0U);
@@ -663,4 +705,176 @@ TEST_CASE("RoamingService completes a dropped link's transactions as FAILED", "[
         CHECK(host.sent.size() == 1U);
         CHECK(service.pendingCount() == 1U);
     }
+}
+
+TEST_CASE("RoamingService serving FNE deregisters a previous serving RFSS behind the same home link", "[fne][roaming][service][chain]")
+{
+    // home H ($911) reaches serving FNE U ($13B) over one link; U serves hosts A and B, two RFSSs of system $13B
+    const RoamingLink H_TO_U = { 2001U, false };
+    const RoamingLink U_TO_H = { 3001U, true };
+    const RoamingLink HOST_A = { 1001U, false };
+    const RoamingLink HOST_B = { 1002U, false };
+    const RfssIdentity RFSS_A = { 0xDEE00U, 0x13BU, 0x01U };
+    const RfssIdentity RFSS_B = { 0xDEE00U, 0x13BU, 0x02U };
+
+    FakeRoamingHost homeHost;
+    RoamingService home(&homeHost);
+    home.setIdentity(0xDEE00U, 0x911U, ROAM_DEFAULT_EXPIRES);
+    home.linkUp(H_TO_U, true, true, 0xDEE00U, 0x13BU);
+    homeHost.authorized.insert(0x0F4240U);
+
+    FakeRoamingHost servingHost;
+    RoamingService serving(&servingHost);
+    serving.setIdentity(0xDEE00U, 0x13BU, ROAM_DEFAULT_EXPIRES);
+    serving.linkUp(U_TO_H, true, true, 0xDEE00U, 0x911U);
+    serving.linkUp(HOST_A, true, false, 0xDEE00U, 0x13BU);
+    serving.linkUp(HOST_B, true, false, 0xDEE00U, 0x13BU);
+
+    // the roamer registers through host A
+    deliver(serving, HOST_A, servingReg(ROAMER, RFSS_A, 0x5001U), 0U);
+    REQUIRE(pump(servingHost, U_TO_H, home, H_TO_U, 0U) == 1U);
+    REQUIRE(pump(homeHost, H_TO_U, serving, U_TO_H, 0U) == 1U);
+    REQUIRE(lastSent(servingHost, HOST_A, NET_SUBFUNC::ROAM_SERVING_REG_RSP).result == RoamResult::SUCCESS);
+    servingHost.sent.clear();
+
+    // then through host B
+    deliver(serving, HOST_B, servingReg(ROAMER, RFSS_B, 0x5002U), 1000U);
+    REQUIRE(pump(servingHost, U_TO_H, home, H_TO_U, 1000U) == 1U);
+
+    // the home answers only the success on the shared link, so nothing depends on delivery order
+    REQUIRE(homeHost.sent.size() == 1U);
+    CHECK(homeHost.sent[0U].subFunc == NET_SUBFUNC::ROAM_SERVING_REG_RSP);
+    REQUIRE(pump(homeHost, H_TO_U, serving, U_TO_H, 1000U) == 1U);
+
+    CHECK(lastSent(servingHost, HOST_B, NET_SUBFUNC::ROAM_SERVING_REG_RSP).result == RoamResult::SUCCESS);
+    CHECK(countSent(servingHost, HOST_B, NET_SUBFUNC::ROAM_HOME_DEREG) == 0U);
+    const RoamingMessage dereg = lastSent(servingHost, HOST_A, NET_SUBFUNC::ROAM_HOME_DEREG);
+    CHECK(dereg.qualifier == RoamQualifier::ROAMED);
+    CHECK(dereg.suid == ROAMER);
+    CHECK(dereg.hopCount == ROAM_DEFAULT_HOP_COUNT);
+    REQUIRE(serving.servingRecords().size() == 1U);
+    CHECK(serving.servingRecords()[0U].link == HOST_B);
+    REQUIRE(home.homeRecords().size() == 1U);
+    CHECK(home.homeRecords()[0U].serving == RFSS_B);
+    CHECK(home.homeRecords()[0U].link == H_TO_U);
+    CHECK(serving.pendingCount() == 1U);
+
+    // host A's answer completes U's own transaction, never reaches the home and leaves B's record in place
+    deliver(serving, HOST_A, simple(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, ROAMER, dereg.txnId, RoamResult::SUCCESS), 1100U);
+    CHECK(serving.pendingCount() == 0U);
+    CHECK(countSent(servingHost, U_TO_H, NET_SUBFUNC::ROAM_HOME_DEREG_RSP) == 0U);
+    REQUIRE(serving.servingRecords().size() == 1U);
+    CHECK(serving.servingRecords()[0U].link == HOST_B);
+}
+
+TEST_CASE("RoamingService home deregisters a previous serving RFSS behind another link in either delivery order", "[fne][roaming][service][chain]")
+{
+    // home H ($911) reaches serving FNE U1 ($13B, host A) and serving FNE U2 ($222, host B) on separate links
+    const RoamingLink H_TO_U1 = { 2001U, false };
+    const RoamingLink H_TO_U2 = { 2002U, false };
+    const RoamingLink U_TO_H = { 3001U, true };
+    const RoamingLink HOST_A = { 1001U, false };
+    const RoamingLink HOST_B = { 1002U, false };
+
+    FakeRoamingHost homeHost;
+    RoamingService home(&homeHost);
+    home.setIdentity(0xDEE00U, 0x911U, ROAM_DEFAULT_EXPIRES);
+    home.linkUp(H_TO_U1, true, true, 0xDEE00U, 0x13BU);
+    home.linkUp(H_TO_U2, true, true, 0xDEE00U, 0x222U);
+    homeHost.authorized.insert(0x0F4240U);
+
+    FakeRoamingHost u1Host;
+    RoamingService u1(&u1Host);
+    u1.setIdentity(0xDEE00U, 0x13BU, ROAM_DEFAULT_EXPIRES);
+    u1.linkUp(U_TO_H, true, true, 0xDEE00U, 0x911U);
+    u1.linkUp(HOST_A, true, false, 0xDEE00U, 0x13BU);
+
+    FakeRoamingHost u2Host;
+    RoamingService u2(&u2Host);
+    u2.setIdentity(0xDEE00U, 0x222U, ROAM_DEFAULT_EXPIRES);
+    u2.linkUp(U_TO_H, true, true, 0xDEE00U, 0x911U);
+    u2.linkUp(HOST_B, true, false, 0xDEE00U, 0x222U);
+
+    deliver(u1, HOST_A, servingReg(ROAMER, SERVING_13B, 0x5101U), 0U);
+    REQUIRE(pump(u1Host, U_TO_H, home, H_TO_U1, 0U) == 1U);
+    REQUIRE(pump(homeHost, H_TO_U1, u1, U_TO_H, 0U) == 1U);
+    REQUIRE(u1.servingRecords().size() == 1U);
+    u1Host.sent.clear();
+
+    deliver(u2, HOST_B, servingReg(ROAMER, SERVING_222, 0x5102U), 1000U);
+    REQUIRE(pump(u2Host, U_TO_H, home, H_TO_U2, 1000U) == 1U);
+    REQUIRE(countSent(homeHost, H_TO_U2, NET_SUBFUNC::ROAM_SERVING_REG_RSP) == 1U);
+    REQUIRE(countSent(homeHost, H_TO_U1, NET_SUBFUNC::ROAM_HOME_DEREG) == 1U);
+
+    SECTION("Success_Delivered_First") {
+        REQUIRE(pump(homeHost, H_TO_U2, u2, U_TO_H, 1000U) == 1U);
+        REQUIRE(pump(homeHost, H_TO_U1, u1, U_TO_H, 1000U) == 1U);
+    }
+
+    SECTION("Home_Deregistration_Delivered_First") {
+        REQUIRE(pump(homeHost, H_TO_U1, u1, U_TO_H, 1000U) == 1U);
+        REQUIRE(pump(homeHost, H_TO_U2, u2, U_TO_H, 1000U) == 1U);
+    }
+
+    CHECK(lastSent(u2Host, HOST_B, NET_SUBFUNC::ROAM_SERVING_REG_RSP).result == RoamResult::SUCCESS);
+    CHECK(countSent(u2Host, HOST_B, NET_SUBFUNC::ROAM_HOME_DEREG) == 0U);
+    REQUIRE(u2.servingRecords().size() == 1U);
+    CHECK(u2.servingRecords()[0U].link == HOST_B);
+    REQUIRE(home.homeRecords().size() == 1U);
+    CHECK(home.homeRecords()[0U].serving == SERVING_222);
+    CHECK(home.homeRecords()[0U].link == H_TO_U2);
+
+    // U1 relays the Home Deregistration to host A, and host A's answer back to the home
+    const RoamingMessage dereg = lastSent(u1Host, HOST_A, NET_SUBFUNC::ROAM_HOME_DEREG);
+    CHECK(dereg.qualifier == RoamQualifier::ROAMED);
+    CHECK(dereg.hopCount == 7U);
+    deliver(u1, HOST_A, simple(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, ROAMER, dereg.txnId, RoamResult::SUCCESS), 1100U);
+    CHECK(u1.servingRecords().empty());
+    REQUIRE(pump(u1Host, U_TO_H, home, H_TO_U1, 1100U) == 1U);
+    CHECK(home.pendingCount() == 0U);
+    CHECK(homeHost.sent.empty());
+}
+
+TEST_CASE("RoamingService late Home Deregistration Response does not release a moved roamer", "[fne][roaming][service][chain]")
+{
+    const RoamingLink HOST_A = { 1001U, false };
+    const RoamingLink HOST_B = { 1002U, false };
+    const RfssIdentity RFSS_A = { 0xDEE00U, 0x13BU, 0x01U };
+    const RfssIdentity RFSS_B = { 0xDEE00U, 0x13BU, 0x02U };
+
+    FakeRoamingHost host;
+    RoamingService service(&host);
+    service.setIdentity(0xDEE00U, 0x13BU, ROAM_DEFAULT_EXPIRES);
+    service.linkUp(UPSTREAM, true, true, 0xDEE00U, 0x911U);
+    service.linkUp(HOST_A, true, false, 0xDEE00U, 0x13BU);
+    service.linkUp(HOST_B, true, false, 0xDEE00U, 0x13BU);
+
+    deliver(service, HOST_A, servingReg(ROAMER, RFSS_A, 0x6001U), 0U);
+    deliver(service, UPSTREAM, simple(NET_SUBFUNC::ROAM_SERVING_REG_RSP, ROAMER, 0x6001U, RoamResult::SUCCESS), 0U);
+    REQUIRE(service.servingRecords().size() == 1U);
+
+    // a home-originated Home Deregistration is relayed toward host A and is still open
+    deliver(service, UPSTREAM, simple(NET_SUBFUNC::ROAM_HOME_DEREG, ROAMER, 0x6002U, RoamQualifier::ROAMED), 0U);
+    REQUIRE(countSent(host, HOST_A, NET_SUBFUNC::ROAM_HOME_DEREG) == 1U);
+
+    // the roamer moves to host B behind the same home link; U deregisters host A itself
+    deliver(service, HOST_B, servingReg(ROAMER, RFSS_B, 0x6003U), 10U);
+    deliver(service, UPSTREAM, simple(NET_SUBFUNC::ROAM_SERVING_REG_RSP, ROAMER, 0x6003U, RoamResult::SUCCESS), 10U);
+    REQUIRE(countSent(host, HOST_A, NET_SUBFUNC::ROAM_HOME_DEREG) == 2U);
+    const RoamingMessage ownDereg = lastSent(host, HOST_A, NET_SUBFUNC::ROAM_HOME_DEREG);
+    REQUIRE(service.servingRecords().size() == 1U);
+    REQUIRE(service.servingRecords()[0U].link == HOST_B);
+
+    // host A's late answer to the home's request is relayed upstream without releasing B's record
+    deliver(service, HOST_A, simple(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, ROAMER, 0x6002U, RoamResult::SUCCESS), 20U);
+    CHECK(countSent(host, UPSTREAM, NET_SUBFUNC::ROAM_HOME_DEREG_RSP) == 1U);
+    REQUIRE(service.servingRecords().size() == 1U);
+    CHECK(service.servingRecords()[0U].link == HOST_B);
+
+    // host A's answer to U's own request is consumed, also without releasing B's record
+    deliver(service, HOST_A, simple(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, ROAMER, ownDereg.txnId, RoamResult::SUCCESS), 30U);
+    CHECK(countSent(host, UPSTREAM, NET_SUBFUNC::ROAM_HOME_DEREG_RSP) == 1U);
+    REQUIRE(service.servingRecords().size() == 1U);
+    CHECK(service.servingRecords()[0U].link == HOST_B);
+    CHECK(service.pendingCount() == 0U);
 }

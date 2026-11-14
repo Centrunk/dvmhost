@@ -363,7 +363,9 @@ namespace network
         void handleRequest(ActionList& actions, const RoamingLink& ingress, const roaming::RoamingMessage& msg, uint64_t nowMs,
             bool authorized, uint32_t localPeer);
         /**
-         * @brief Home handling of a Serving Registration (caller holds m_mutex).
+         * @brief Home handling of a Serving Registration (caller holds m_mutex). A previous serving RFSS behind a
+         *  different link receives a Roamed Home Deregistration from the home; one behind the same link is
+         *  deregistered by the downstream FNE whose served-roamer record changes link (see handleResponse).
          * @param actions Action list.
          * @param ingress Ingress link.
          * @param msg Request.
@@ -415,12 +417,15 @@ namespace network
          */
         void sendHomeDereg(ActionList& actions, const RoamingLink& link, const roaming::SUID& suid, uint8_t qualifier, uint64_t nowMs);
         /**
-         * @brief Matches and relays (or consumes) a response (caller holds m_mutex).
+         * @brief Matches and relays (or consumes) a response (caller holds m_mutex). Relaying a successful Serving
+         *  Registration Response moves the served-roamer record to the relay link; when the record was on a different
+         *  link of this FNE, this FNE sends the previous serving side a Roamed Home Deregistration (BACA 5.1).
          * @param actions Action list.
          * @param from Link the response arrived on.
          * @param msg Response.
+         * @param nowMs Current time in milliseconds.
          */
-        void handleResponse(ActionList& actions, const RoamingLink& from, const roaming::RoamingMessage& msg);
+        void handleResponse(ActionList& actions, const RoamingLink& from, const roaming::RoamingMessage& msg, uint64_t nowMs);
         /**
          * @brief Runs deferred actions (no lock held).
          * @param actions Action list.
