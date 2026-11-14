@@ -657,6 +657,21 @@ TEST_CASE("RoamingService home procedures", "[fne][roaming][service][home]")
         CHECK(home.homeRecords()[0U].expiresAtMs == 5000U + 18000000U);
     }
 
+    SECTION("Serving_Deregistration_Only_From_The_Link_Holding_The_Record") {
+        deliver(home, FNE_A, servingReg(ROAMER, SERVING_13B, 0x2019U), 0U);
+
+        // a forged Serving Deregistration naming the right serving RFSS but arriving on another link changes nothing
+        deliver(home, FNE_B, servingDereg(ROAMER, SERVING_13B, 0x201AU), 0U);
+        CHECK(lastSent(host, FNE_B, NET_SUBFUNC::ROAM_SERVING_DEREG_RSP).result == RoamResult::MME_OBJ_NOT_REG_AT_SERV);
+        REQUIRE(home.homeRecords().size() == 1U);
+        CHECK(home.homeRecords()[0U].link == FNE_A);
+        CHECK(host.routes[ROAMER.pack()] == FNE_A);
+
+        deliver(home, FNE_A, servingDereg(ROAMER, SERVING_13B, 0x201BU), 0U);
+        CHECK(lastSent(host, FNE_A, NET_SUBFUNC::ROAM_SERVING_DEREG_RSP).result == RoamResult::SUCCESS);
+        CHECK(home.homeRecords().empty());
+    }
+
     SECTION("Non_Home_System_Without_A_Route_Is_MME_SU_UNKNOWN") {
         const SUID other = { 0xDEE00U, 0x777U, 5U };
         deliver(home, FNE_A, servingReg(other, SERVING_13B, 0x2011U), 0U);
@@ -687,6 +702,17 @@ TEST_CASE("RoamingService forwards Home Deregistration and Query to the serving 
         REQUIRE(host.sent.size() == 2U);
         CHECK(host.sent[1U].link == FNE_A);
         CHECK(service.servingRecords().empty());
+    }
+
+    SECTION("Home_Deregistration_And_Query_From_A_Host_Link_Are_Dropped") {
+        // only links facing the home (FNE links) carry Home Deregistration and Query toward a serving host
+        const RoamingLink otherHost = { 1002U, false };
+        service.linkUp(otherHost, true, false, 0xDEE00U, 0x13BU);
+        deliver(service, otherHost, simple(NET_SUBFUNC::ROAM_HOME_DEREG, ROAMER, 0x3005U, RoamQualifier::NON_ROAMED), 0U);
+        deliver(service, otherHost, simple(NET_SUBFUNC::ROAM_QUERY, ROAMER, 0x3006U, RoamQueryType::FORCED), 0U);
+        CHECK(host.sent.empty());
+        CHECK(service.pendingCount() == 0U);
+        CHECK(service.servingRecords().size() == 1U);
     }
 
     SECTION("Home_Deregistration_For_An_Unknown_SUID_Is_Not_Found") {

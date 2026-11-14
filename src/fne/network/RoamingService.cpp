@@ -581,6 +581,14 @@ void RoamingService::handleRequest(ActionList& actions, const RoamingLink& ingre
         break;
     case NET_SUBFUNC::ROAM_HOME_DEREG:
     case NET_SUBFUNC::ROAM_QUERY:
+        // Home Deregistration and Query travel from the home toward the serving host, so at an FNE they arrive only
+        // on links facing the home (FNE links); a host link never originates them.
+        if (!linkIsFne(ingress)) {
+            LogWarning(LOG_MASTER, "P25 ROAMING, %s %u host link sent subFunc = $%02X, suid = $%05X.$%03X.$%06X, txnId = %08X, dropped",
+                linkName(ingress), ingress.peerId, msg.subFunc, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
+            break;
+        }
+
         forwardTowardServing(actions, ingress, msg, nowMs);
         break;
     default:
@@ -678,10 +686,12 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
 
 void RoamingService::handleHomeServingDereg(ActionList& actions, const RoamingLink& ingress, const RoamingMessage& msg)
 {
+    // the serving RFSS identity in the message is only trusted on the link the home record was learned from
     auto it = m_home.find(msg.suid.pack());
-    if (it == m_home.end() || !(it->second.serving == msg.serving)) {
-        LogWarning(LOG_MASTER, "P25 ROAMING, Serving Deregistration from a non-serving RFSS $%05X.$%03X RFSS $%02X, suid = $%05X.$%03X.%u, txnId = %08X",
-            msg.serving.netId, msg.serving.sysId, msg.serving.rfssId, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
+    if (it == m_home.end() || !(it->second.serving == msg.serving) || !(it->second.link == ingress)) {
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u Serving Deregistration from a non-serving RFSS $%05X.$%03X RFSS $%02X or link, suid = $%05X.$%03X.$%06X, txnId = %08X",
+            linkName(ingress), ingress.peerId, msg.serving.netId, msg.serving.sysId, msg.serving.rfssId, msg.suid.netId, msg.suid.sysId,
+            msg.suid.unitId, msg.txnId);
         queueReply(actions, ingress, msg, RoamResult::MME_OBJ_NOT_REG_AT_SERV);
         return;
     }
