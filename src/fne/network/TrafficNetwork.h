@@ -1004,9 +1004,11 @@ namespace network
          * @param srcId Source Radio ID.
          * @param ssrc Originating peer ID.
          * @param log Flag indicating whether the registration should be logged.
+         * @param learned Flag indicating the registration was learned from validated traffic rather than announced
+         *  by the peer; a learned registration never counts as a home unit registering on a home site.
          * @returns bool True, if the peer affiliation lookup exists, otherwise false.
          */
-        bool updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log = true);
+        bool updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log = true, bool learned = false);
         /**
          * @brief Removes one peer unit registration and publishes the aggregate upstream.
          * @param peerId Peer ID.

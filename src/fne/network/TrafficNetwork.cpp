@@ -1693,7 +1693,7 @@ void TrafficNetwork::learnUnitRouteFromTraffic(uint32_t peerId, uint32_t srcId, 
     // update the peer unit registration
     const UnitRoute current = m_unitRouteRegistry.resolve(srcId, now);
     if (!current.valid || current.peerId != peerId) {
-        updatePeerUnitRegistration(peerId, srcId, ssrc, false);
+        updatePeerUnitRegistration(peerId, srcId, ssrc, false, true);
     }
 
     m_unitRouteRegistry.update(srcId, peerId, ssrc, true, now);
@@ -2091,7 +2091,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
 
 /* Adds one peer unit registration and publishes the aggregate upstream. */
 
-bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log)
+bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log, bool learned)
 {
     std::vector<uint32_t> aggregate;
 
@@ -2118,7 +2118,12 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
     publishAggregatedUnitRegistrations(aggregate);
 
     // a home SU registering on a home site ends any registration at a serving RFSS (BACA 5.1); a downstream
-    //  neighbor FNE is another system, never a home site of this one
+    //  neighbor FNE is another system, never a home site of this one, and a route learned from traffic is not
+    //  a registration on the site
+    if (learned) {
+        return true;
+    }
+
     PeerConnectionPtr registrar = findPeer(peerId);
     if (registrar == nullptr || registrar->peerClass() != PEER_CONN_CLASS_NEIGHBOR) {
         const uint64_t roamNow = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
