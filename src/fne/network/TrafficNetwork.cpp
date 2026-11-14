@@ -256,6 +256,9 @@ TrafficNetwork::~TrafficNetwork()
 void TrafficNetwork::setP25RoamingConfig(const RoamingConfig& config)
 {
     m_roamingConfig = config;
+
+    // local radios are keyed as (own WACN ID, own System ID, Unit ID) (spec 2.6)
+    m_unitRouteRegistry.setOwnSystem(config.enabled() ? config.netId() : 0U, config.enabled() ? config.sysId() : 0U);
 }
 
 /* Helper to set configuration options. */
