@@ -101,8 +101,11 @@ void RoamingService::linkUp(const RoamingLink& link, bool capable, bool fne, uin
         selectUpstreamDefault();
     }
 
-    LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u link up, capable = %u, fne = %u, netId = $%05X, sysId = $%03X", linkName(link),
-        link.peerId, capable ? 1U : 0U, fne ? 1U : 0U, netId, sysId);
+    // links that did not negotiate roaming stay silent
+    if (capable) {
+        LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u link up, capable = %u, fne = %u, netId = $%05X, sysId = $%03X", linkName(link),
+            link.peerId, capable ? 1U : 0U, fne ? 1U : 0U, netId, sysId);
+    }
 }
 
 /* Removes a link. */
@@ -149,7 +152,12 @@ void RoamingService::linkDown(const RoamingLink& link)
     }
 
     // home records stay until expires (spec 6)
-    LogWarning(LOG_MASTER, "P25 ROAMING, %s %u link down, %u pending transaction(s) completed as FAILED", linkName(link), link.peerId, failed);
+    if (failed > 0U) {
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u link down, %u pending transaction(s) completed as FAILED", linkName(link), link.peerId, failed);
+    }
+    else {
+        LogDebug(LOG_MASTER, "P25 ROAMING, %s %u link down", linkName(link), link.peerId);
+    }
 }
 
 /* Gets whether a link negotiated P25 roaming. */

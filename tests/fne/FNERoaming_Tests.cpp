@@ -617,3 +617,28 @@ TEST_CASE("FNE ignores unit registrations from a neighbor FNE for the home-site 
     CHECK(writes.empty());
     CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
 }
+
+TEST_CASE("FNE does not record unit routes for registrations arriving from an upstream link", "[fne][roaming][dispatch]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));                 // this FNE is the home of $911
+    harness.radios.addEntry(0x0F4240U, true, "home roamer");
+
+    // the upstream link's ID is a PeerNetwork key; give it the value of a real downstream peer to catch a collision
+    const RoamingLink upstream = { 2001U, true };
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true);
+    harness.traffic.roaming()->linkUp(upstream, true, true, 0xDEE00U, 0x13BU);
+
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    harness.traffic.processUpstreamRoaming(2001U, network::NET_SUBFUNC::ROAM_SERVING_REG, reg.data(), static_cast<uint32_t>(reg.size()));
+
+    // the home record exists but the upstream key is not written into the (downstream peer) unit route table
+    REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, SUID{ 0xDEE00U, 0x911U, 0x0F4240U }) == 0U);
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, 0x0F4240U) == 0U);
+
+    // dropping the upstream link leaves no stale route
+    harness.traffic.roaming()->linkDown(upstream);
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, SUID{ 0xDEE00U, 0x911U, 0x0F4240U }) == 0U);
+}

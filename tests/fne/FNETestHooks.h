@@ -451,6 +451,13 @@ public:
         const std::vector<uint8_t>& packet);
 
     /**
+     * @brief Resolves the peer holding a bare Unit ID route (the production registration lookup).
+     * @param network The TrafficNetwork instance.
+     * @param unitId Unit ID.
+     * @return Peer ID, or 0 when no route exists.
+     */
+    static uint32_t findPeerUnitReg(network::TrafficNetwork& network, uint32_t unitId);
+    /**
      * @brief Looks up a foreign (SUID) registration entry.
      * @param network The TrafficNetwork instance.
      * @param suid Foreign SUID.

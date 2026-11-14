@@ -2441,6 +2441,13 @@ void TrafficNetwork::RoamingHostAdapter::removeLocalUnitRegistration(uint32_t pe
 
 void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid, const RoamingLink& link)
 {
+    // an upstream link's ID is a PeerNetwork key, not a downstream peer ID; the unit route table only holds
+    //  downstream peers, so upstream routing is not recorded here (designed in sub-project 3d)
+    if (link.upstream) {
+        LogDebug(LOG_MASTER, "P25 ROAMING, upstream %u route for suid unit %u not recorded", link.peerId, suid.unitId);
+        return;
+    }
+
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     m_network->m_unitRouteRegistry.updateSuid(suid, link.peerId, link.peerId, false, now);
 }
@@ -2449,6 +2456,11 @@ void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid,
 
 void TrafficNetwork::RoamingHostAdapter::eraseUnitRoute(const roaming::SUID& suid, const RoamingLink& link)
 {
+    // upstream routes are never recorded (see setUnitRoute)
+    if (link.upstream) {
+        return;
+    }
+
     m_network->m_unitRouteRegistry.eraseSuid(suid, link.peerId);
 }
 

@@ -1176,6 +1176,13 @@ bool FNETestHooks::findSuidRegistration(TrafficNetwork& network, const roaming::
     return network.m_suidRegistrations.find(suid, entry);
 }
 
+/* Resolves the peer holding a bare Unit ID route. */
+
+uint32_t FNETestHooks::findPeerUnitReg(TrafficNetwork& network, uint32_t unitId)
+{
+    return network.findPeerUnitReg(unitId);
+}
+
 /* Resolves the next-hop peer of a SUID route. */
 
 uint32_t FNETestHooks::findSuidRoute(TrafficNetwork& network, const roaming::SUID& suid)
