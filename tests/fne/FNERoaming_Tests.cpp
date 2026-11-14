@@ -20,6 +20,7 @@
 #include "common/network/P25Roaming.h"
 #include "common/yaml/Yaml.h"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -317,4 +318,67 @@ TEST_CASE("FNE decides the neighbor exemption with the same precedence as the pe
         CHECK(neighbor.peerClass() == network::PEER_CONN_CLASS_NEIGHBOR);
         CHECK(neighbor.p25RoamingCapable());
     }
+}
+
+namespace {
+    /**
+     * @brief Builds a 24-byte GRANT_REQ payload (layout in BaseNetwork.h writeGrantReq).
+     * @param srcId Source unit ID.
+     * @param dstId Destination unit ID.
+     * @param netId Source WACN ID (0 = own system).
+     * @param sysId Source System ID (0 = own system).
+     * @returns std::vector<uint8_t> Payload bytes.
+     */
+    std::vector<uint8_t> grantRequest(uint32_t srcId, uint32_t dstId, uint32_t netId, uint32_t sysId)
+    {
+        const uint8_t P25_MODE = 2U;                                                // DVM_STATE::STATE_P25 (src/host/modem/Modem.h:120)
+        std::vector<uint8_t> packet(ROAM_GRANT_REQ_LEN, 0x00U);
+        SET_UINT24(netId, packet.data(), 4U);
+        SET_UINT16(sysId, packet.data(), 7U);
+        SET_UINT24(srcId, packet.data(), 11U);
+        SET_UINT24(dstId, packet.data(), 15U);
+        packet[19U] = 0x80U;                                                        // unit-to-unit
+        packet[20U] = P25_MODE;
+        packet[21U] = 0x04U;                                                        // service options
+        return packet;
+    }
+} // namespace
+
+TEST_CASE("FNE grant requests honor the source system fields", "[fne][roaming][grant]")
+{
+    constexpr uint32_t SOURCE_PEER = 1001U;
+    constexpr uint32_t TARGET_PEER = 1002U;
+    constexpr uint32_t SOURCE_ID = 2001U;
+    constexpr uint32_t DESTINATION_ID = 2002U;
+
+    auto run = [&](const std::vector<uint8_t>& packet) {
+        RoamingFNEHarness harness;
+        harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+        FNETestHooks::addPeer(harness.traffic, SOURCE_PEER, network::NET_STAT_RUNNING, true);
+        FNETestHooks::addPeer(harness.traffic, TARGET_PEER, network::NET_STAT_RUNNING, true);
+        harness.radios.addEntry(SOURCE_ID, true, "test source");
+        harness.radios.addEntry(DESTINATION_ID, true, "test destination");
+        FNETestHooks::registerP25Unit(harness.traffic, TARGET_PEER, DESTINATION_ID);
+
+        std::vector<uint32_t> writes;
+        FNETestHooks::capturePeerWrites(harness.traffic, writes);
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::GRANT_REQ, network::NET_SUBFUNC::NOP, SOURCE_PEER, packet);
+        std::sort(writes.begin(), writes.end());
+        return writes;
+    };
+
+    // zero (older hosts) and this system's own identity are processed exactly as before
+    CHECK(run(grantRequest(SOURCE_ID, DESTINATION_ID, 0U, 0U)) == std::vector<uint32_t>({ SOURCE_PEER, TARGET_PEER }));
+    CHECK(run(grantRequest(SOURCE_ID, DESTINATION_ID, 0xDEE00U, 0x13BU)) == std::vector<uint32_t>({ SOURCE_PEER, TARGET_PEER }));
+
+    // a cross-system source is not served until group/unit-to-unit mobility (3c/3d)
+    CHECK(run(grantRequest(SOURCE_ID, DESTINATION_ID, 0xDEE00U, 0x911U)).empty());
+
+    // out-of-range System ID and a truncated request are dropped
+    std::vector<uint8_t> badSys = grantRequest(SOURCE_ID, DESTINATION_ID, 0U, 0U);
+    badSys[7U] = 0x10U;
+    CHECK(run(badSys).empty());
+    std::vector<uint8_t> truncated = grantRequest(SOURCE_ID, DESTINATION_ID, 0U, 0U);
+    truncated.resize(ROAM_GRANT_REQ_LEN - 1U);
+    CHECK(run(truncated).empty());
 }

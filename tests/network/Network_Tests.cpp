@@ -1181,3 +1181,60 @@ TEST_CASE("Network carries P25 roaming frames and SUID announcements only on a n
     masterReceiver.close();
     metadataReceiver.close();
 }
+
+TEST_CASE("Network grant requests carry the source WACN and System ID in bytes 4-8", "[network][loopback][roaming]")
+{
+    const uint16_t masterPort = reserveLoopbackPort();
+    REQUIRE(masterPort != 0U);
+
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+
+    Socket masterReceiver("127.0.0.1", masterPort);
+    REQUIRE(masterReceiver.open(AF_INET));
+
+    FrameQueue masterReceiverQueue(&masterReceiver, 0x5151U, false);
+    FrameQueue masterSenderQueue(&masterReceiver, 0x5252U, false);
+
+    sockaddr_storage networkDestination = {};
+    uint32_t networkDestinationLen = 0U;
+    REQUIRE(Socket::lookup("127.0.0.1", localPort, networkDestination, networkDestinationLen) == 0);
+
+    TestableNetwork network("127.0.0.1", masterPort, localPort, 9012U, "loopback-password", true, false, true, false, false, false, true, true, true, true, false, false);
+    network.enable(true);
+    REQUIRE(network.open());
+
+    completeHandshake(network, masterReceiverQueue, masterSenderQueue, networkDestination, networkDestinationLen, 9012U);
+
+    // existing callers: bytes 0-10 stay zero (spec 10)
+    REQUIRE(network.writeGrantReq(2U, 0x0F4240U, 0x000FA1U, 0U, false, 0x04U));
+    std::string payload;
+    RTPFNEHeader fneHeader;
+    REQUIRE(waitForFunctionMessage(masterReceiverQueue, NET_FUNC::GRANT_REQ, payload, fneHeader));
+    REQUIRE(payload.size() == MSG_HDR_SIZE);
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(payload.data());
+    for (uint32_t i = 0U; i < 11U; i++) {
+        INFO("byte " << i);
+        CHECK(bytes[i] == 0x00U);
+    }
+    const uint32_t wireSrcId = GET_UINT24(bytes, 11U);
+    CHECK(wireSrcId == 0x0F4240U);
+
+    // a roamer's home system ($DEE00.$911) occupies bytes 4-6 and 7-8
+    REQUIRE(network.writeGrantReq(2U, 0x0F4240U, 0x000FA1U, 0U, false, 0x04U, 0xDEE00U, 0x911U));
+    REQUIRE(waitForFunctionMessage(masterReceiverQueue, NET_FUNC::GRANT_REQ, payload, fneHeader));
+    REQUIRE(payload.size() == MSG_HDR_SIZE);
+    bytes = reinterpret_cast<const uint8_t*>(payload.data());
+    const uint8_t expected[11U] = { 0x00U, 0x00U, 0x00U, 0x00U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U, 0x00U, 0x00U };
+    for (uint32_t i = 0U; i < 11U; i++) {
+        INFO("byte " << i);
+        CHECK(bytes[i] == expected[i]);
+    }
+    CHECK(bytes[20U] == 2U);
+    CHECK(bytes[21U] == 0x04U);
+
+    // an out-of-range source system is never written
+    CHECK_FALSE(network.writeGrantReq(2U, 0x0F4240U, 0x000FA1U, 0U, false, 0x04U, 0x100000U, 0x911U));
+
+    masterReceiver.close();
+}

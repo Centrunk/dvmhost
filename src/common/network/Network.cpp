@@ -129,12 +129,12 @@ Network::~Network()
 /* Writes a grant request unless unit-to-unit network traffic is disabled. */
 
 bool Network::writeGrantReq(const uint8_t mode, const uint32_t srcId, const uint32_t dstId,
-    const uint8_t slot, const bool unitToUnit, const uint8_t serviceOptions)
+    const uint8_t slot, const bool unitToUnit, const uint8_t serviceOptions, const uint32_t srcNetId, const uint32_t srcSysId)
 {
     if (m_disallowUnitToUnit && unitToUnit)
         return false;
 
-    return BaseNetwork::writeGrantReq(mode, srcId, dstId, slot, unitToUnit, serviceOptions);
+    return BaseNetwork::writeGrantReq(mode, srcId, dstId, slot, unitToUnit, serviceOptions, srcNetId, srcSysId);
 }
 
 /* Releases a grant previously assigned by the connected FNE. */

@@ -32,6 +32,31 @@ void TrafficNetwork::PacketHandler::grantRequest(TrafficNetwork* network, NetPac
 
         // validate peer (simple validation really)
         if (connection->connected() && connection->address() == ip) {
+            if (req->buffer == nullptr || req->length < static_cast<int>(roaming::ROAM_GRANT_REQ_LEN)) {
+                LogWarning(LOG_MASTER, "PEER %u (%s) malformed grant request, length = %d", peerId,
+                    connection->identWithQualifier().c_str(), req->length);
+                return;
+            }
+
+            // bytes 4-8 carry the source radio's home WACN ID and System ID; zero means this system (spec 3.3)
+            uint32_t srcNetId = 0U;
+            uint32_t srcSysId = 0U;
+            if (!roaming::RoamingCodec::decodeGrantSource(req->buffer, static_cast<uint32_t>(req->length), srcNetId, srcSysId)) {
+                LogWarning(LOG_MASTER, "PEER %u (%s) malformed grant request source system, dropped", peerId,
+                    connection->identWithQualifier().c_str());
+                return;
+            }
+
+            const bool ownSystem = (srcNetId == 0U && srcSysId == 0U) ||
+                (network->m_roamingConfig.enabled() && srcNetId == network->m_roamingConfig.netId() &&
+                 srcSysId == network->m_roamingConfig.sysId());
+            if (!ownSystem) {
+                // cross-system grants arrive with group and unit-to-unit mobility (sub-projects 3c/3d)
+                LogWarning(LOG_MASTER, "PEER %u (%s) grant request for a roaming source ($%05X.$%03X) is not supported, dropped",
+                    peerId, connection->identWithQualifier().c_str(), srcNetId, srcSysId);
+                return;
+            }
+
             uint32_t srcId = GET_UINT24(req->buffer, 11U);                  // Source Address
             uint32_t dstId = GET_UINT24(req->buffer, 15U);                  // Destination Address
 

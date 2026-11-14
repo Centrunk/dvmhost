@@ -18,6 +18,7 @@
 #include "common/p25/dfsi/LC.h"
 #include "common/p25/kmm/KMMModifyKey.h"
 #include "network/BaseNetwork.h"
+#include "network/P25Roaming.h"
 #include "Utils.h"
 
 using namespace network;
@@ -103,13 +104,18 @@ BaseNetwork::~BaseNetwork()
 /* Writes grant request to the network. */
 
 bool BaseNetwork::writeGrantReq(const uint8_t mode, const uint32_t srcId, const uint32_t dstId,
-    const uint8_t slot, const bool unitToUnit, const uint8_t serviceOptions)
+    const uint8_t slot, const bool unitToUnit, const uint8_t serviceOptions, const uint32_t srcNetId, const uint32_t srcSysId)
 {
     if (m_status != NET_STAT_RUNNING && m_status != NET_STAT_MST_RUNNING)
         return false;
 
     uint8_t buffer[MSG_HDR_SIZE];
     ::memset(buffer, 0x00U, MSG_HDR_SIZE);
+
+    // bytes 4-8 carry the source radio's home WACN ID and System ID; zero means own system (spec 3.3)
+    if (!roaming::RoamingCodec::encodeGrantSource(buffer, srcNetId, srcSysId)) {
+        return false;
+    }
 
     SET_UINT24(srcId, buffer, 11U);                                                 // Source Address
     SET_UINT24(dstId, buffer, 15U);                                                 // Destination Address

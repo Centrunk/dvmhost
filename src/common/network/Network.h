@@ -182,10 +182,13 @@ namespace network
          * @param slot DMR slot number, or zero for protocols without slots.
          * @param unitToUnit Flag indicating an individual-call grant request.
          * @param serviceOptions Protocol service-options octet for the requested grant.
+         * @param srcNetId Source radio's home WACN ID (0 = own system).
+         * @param srcSysId Source radio's home System ID (0 = own system).
          * @return True if the request was written; otherwise false.
          */
         bool writeGrantReq(const uint8_t mode, const uint32_t srcId, const uint32_t dstId,
-            const uint8_t slot, const bool unitToUnit, const uint8_t serviceOptions);
+            const uint8_t slot, const bool unitToUnit, const uint8_t serviceOptions,
+            const uint32_t srcNetId = 0U, const uint32_t srcSysId = 0U);
 
         /**
          * @brief Releases a grant previously assigned by the connected FNE.
