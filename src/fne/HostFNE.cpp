@@ -962,6 +962,12 @@ bool HostFNE::createPeerNetworks()
             network->setNetTreeDiscCallback(std::bind(&HostFNE::processNetworkTreeDisconnect, this, std::placeholders::_1, std::placeholders::_2));
             network->setNotifyPeerReplicaCallback(std::bind(&HostFNE::processPeerReplicaNotify, this, std::placeholders::_1));
             network->setPatchStatusCallback(std::bind(&HostFNE::processPeerPatchStatus, this, std::placeholders::_1, std::placeholders::_2));
+            // P25 ROAMING messages from the upstream master go to the mobility service (spec 4)
+            network->setP25RoamingCallback([this, id](uint8_t subFunc, const uint8_t* data, uint32_t length) {
+                if (m_network != nullptr) {
+                    m_network->processUpstreamRoaming(id, subFunc, data, length);
+                }
+            });
 
             network->enable(enabled);
             if (enabled) {

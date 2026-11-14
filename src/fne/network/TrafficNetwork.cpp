@@ -113,6 +113,10 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_unitRouteRegistry(),
     m_roamingConfig(),
     m_suidRegistrations(),
+    m_roamingHost(nullptr),
+    m_roaming(nullptr),
+    m_roamingRevalidateTimer(1000U, 5U),
+    m_upstreamRoamingState(),
     m_subscriberOperations(),
     m_ccPeerMap(),
     m_peerReplicaKeyQueue(),
@@ -220,6 +224,10 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
 
     m_globalAff = new fne_lookups::AffiliationLookup("GlobalAffiliations", nullptr, false);
 
+    m_roamingHost = new RoamingHostAdapter(this);
+    m_roaming = new RoamingService(m_roamingHost);
+    m_roamingRevalidateTimer.start();
+
     SpanningTree::s_maxUpdatesBeforeReparent = (uint8_t)host->m_maxMissedPings;
     m_treeRoot = new SpanningTree(peerId, peerId, nullptr);
     m_treeRoot->identity(identity);
@@ -250,6 +258,9 @@ TrafficNetwork::~TrafficNetwork()
     delete m_tagP25P2;
     delete m_tagNXDN;
     delete m_tagAnalog;
+
+    delete m_roaming;
+    delete m_roamingHost;
 }
 
 /* Sets this FNE's P25 system identity and roaming parameters. */
@@ -260,6 +271,9 @@ void TrafficNetwork::setP25RoamingConfig(const RoamingConfig& config)
 
     // local radios are keyed as (own WACN ID, own System ID, Unit ID) (spec 2.6)
     m_unitRouteRegistry.setOwnSystem(config.enabled() ? config.netId() : 0U, config.enabled() ? config.sysId() : 0U);
+
+    // a zero identity disables the mobility service
+    m_roaming->setIdentity(config.netId(), config.sysId(), config.expires());
 }
 
 /* Helper to set configuration options. */
@@ -1042,6 +1056,16 @@ void TrafficNetwork::clock(uint32_t ms)
 
     m_globalAff->clock(ms);
 
+    // P25 roaming: expire transactions and home records, track upstream links and re-check home authorization
+    //  against the RID ACL (the 5 s interval also catches REST ACL edits; spec 4.4)
+    m_roaming->clock(now);
+    updateUpstreamRoamingLinks();
+    m_roamingRevalidateTimer.clock(ms);
+    if (m_roamingRevalidateTimer.isRunning() && m_roamingRevalidateTimer.hasExpired()) {
+        m_roaming->revalidateHomeRecords(now);
+        m_roamingRevalidateTimer.start();
+    }
+
     // if HA is enabled perform HA parameter updates
     if (m_haEnabled) {
         m_haUpdateTimer.clock(ms);
@@ -1559,6 +1583,8 @@ void TrafficNetwork::processNetworkRx(NetPacketRequest* req)
 
                 { NET_FUNC::KEY_REQ, &TrafficNetwork::PacketHandler::keyRequest },
                 { NET_FUNC::KEY_KEK_REQ, &TrafficNetwork::PacketHandler::kekKeyRequest },
+
+                { NET_FUNC::ROAMING, &TrafficNetwork::PacketHandler::roaming },
             };
 
             // dispatch to the appropriate handler based on the function opcode
@@ -2090,6 +2116,14 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
     }
 
     publishAggregatedUnitRegistrations(aggregate);
+
+    // a home SU registering on a home site ends any registration at a serving RFSS (BACA 5.1); a downstream
+    //  neighbor FNE is another system, never a home site of this one
+    PeerConnectionPtr registrar = findPeer(peerId);
+    if (registrar == nullptr || registrar->peerClass() != PEER_CONN_CLASS_NEIGHBOR) {
+        const uint64_t roamNow = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        m_roaming->localRegistration(srcId, roamNow);
+    }
     return true;
 }
 
@@ -2286,8 +2320,136 @@ void TrafficNetwork::erasePeer(uint32_t peerId)
         m_unitRouteRegistry.eraseSuid(suid, peerId);
     }
 
+    // pending roaming transactions over this link complete as FAILED (spec 6)
+    RoamingLink roamingLink;
+    roamingLink.peerId = peerId;
+    roamingLink.upstream = false;
+    m_roaming->linkDown(roamingLink);
+
     // cleanup peer affiliations
     erasePeerAffiliations(peerId);
+}
+
+/* Sends an encoded ROAMING message on a downstream peer or upstream link. */
+
+bool TrafficNetwork::writeRoamingToLink(const RoamingLink& link, uint8_t subFunc, const uint8_t* data, uint32_t length)
+{
+    if (link.upstream) {
+        auto it = m_host->m_peerNetworks.find(link.peerId);
+        if (it == m_host->m_peerNetworks.end() || it->second == nullptr) {
+            return false;
+        }
+
+        return it->second->writeRoaming((NET_SUBFUNC::ENUM)subFunc, data, length);
+    }
+
+    return writePeer(link.peerId, m_peerId, { NET_FUNC::ROAMING, (NET_SUBFUNC::ENUM)subFunc }, data, length, RTP_END_OF_CALL_SEQ,
+        createStreamId());
+}
+
+/* Raises or drops RoamingService upstream links when an upstream PeerNetwork's negotiated state changes. */
+
+void TrafficNetwork::updateUpstreamRoamingLinks()
+{
+    // link state changes never send; the lock only keeps the clock and the upstream receive thread from
+    //  applying the same transition twice or out of order
+    std::lock_guard<std::mutex> lock(m_upstreamRoamingMutex);
+
+    for (auto& entry : m_host->m_peerNetworks) {
+        network::PeerNetwork* peer = entry.second;
+        const bool active = (peer != nullptr) && peer->isEnabled() && peer->isP25RoamingActive();
+        auto state = m_upstreamRoamingState.find(entry.first);
+        const bool wasActive = (state != m_upstreamRoamingState.end()) && state->second;
+        if (active == wasActive) {
+            continue;
+        }
+
+        m_upstreamRoamingState[entry.first] = active;
+
+        RoamingLink link;
+        link.peerId = entry.first;
+        link.upstream = true;
+        if (active) {
+            m_roaming->linkUp(link, true, true, peer->getMasterP25NetId(), peer->getMasterP25SysId());
+        }
+        else {
+            m_roaming->linkDown(link);
+        }
+    }
+}
+
+/* Processes a ROAMING message received from an upstream master. */
+
+void TrafficNetwork::processUpstreamRoaming(uint32_t peerId, uint8_t subFunc, const uint8_t* data, uint32_t length)
+{
+    // the link may have negotiated since the last clock pass
+    updateUpstreamRoamingLinks();
+
+    RoamingLink link;
+    link.peerId = peerId;
+    link.upstream = true;
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    m_roaming->process(link, subFunc, data, length, now);
+}
+
+/* Sends an encoded ROAMING message on a downstream peer or upstream link. */
+
+bool TrafficNetwork::RoamingHostAdapter::sendRoaming(const RoamingLink& link, uint8_t subFunc, const uint8_t* data, uint32_t length)
+{
+    return m_network->writeRoamingToLink(link, subFunc, data, length);
+}
+
+/* Checks the RID ACL: the unit must be present and enabled. */
+
+bool TrafficNetwork::RoamingHostAdapter::isHomeUnitAuthorized(uint32_t unitId)
+{
+    if (m_network->m_ridLookup == nullptr) {
+        return false;
+    }
+
+    // a missing entry reads radioDefault() (BACA 5.5 Gen Req 3: unknown home unit)
+    lookups::RadioId rid = m_network->m_ridLookup->find(unitId);
+    return !rid.radioDefault() && rid.radioEnabled();
+}
+
+/* Finds the host peer (home site) where a home unit is registered. */
+
+uint32_t TrafficNetwork::RoamingHostAdapter::findLocalUnitPeer(uint32_t unitId)
+{
+    const uint32_t peerId = m_network->findPeerUnitReg(unitId);
+    if (peerId == 0U) {
+        return 0U;
+    }
+
+    // a home site is a host peer of this FNE, never a neighbor FNE
+    PeerConnectionPtr connection = m_network->findPeer(peerId);
+    if (connection == nullptr || connection->peerClass() == PEER_CONN_CLASS_NEIGHBOR) {
+        return 0U;
+    }
+
+    return peerId;
+}
+
+/* Removes a home unit's registration at a home site. */
+
+void TrafficNetwork::RoamingHostAdapter::removeLocalUnitRegistration(uint32_t peerId, uint32_t unitId)
+{
+    m_network->removePeerUnitRegistration(peerId, unitId, true);
+}
+
+/* Points the SUID route at a link. */
+
+void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid, const RoamingLink& link)
+{
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    m_network->m_unitRouteRegistry.updateSuid(suid, link.peerId, link.peerId, false, now);
+}
+
+/* Removes the SUID route when it uses the link. */
+
+void TrafficNetwork::RoamingHostAdapter::eraseUnitRoute(const roaming::SUID& suid, const RoamingLink& link)
+{
+    m_network->m_unitRouteRegistry.eraseSuid(suid, link.peerId);
 }
 
 /* Helper to determine if the peer is local to this master. */
@@ -3577,6 +3739,10 @@ bool TrafficNetwork::writePeerQueue(udp::BufferQueue* buffers, uint32_t peerId, 
     PeerConnectionPtr connection = findPeer(peerId);
     if (connection != nullptr) {
 #if defined(CATCH2_TEST_COMPILATION)
+        if (m_testPeerWriteDataHandler) {
+            m_testPeerWriteDataHandler(peerId, opcode, data, length);
+            return true;
+        }
         if (m_testPeerWriteHandler) {
             m_testPeerWriteHandler(peerId, opcode);
             return true;

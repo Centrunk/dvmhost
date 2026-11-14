@@ -43,6 +43,22 @@ public:
     };
 
     /**
+     * @brief One captured peer write including its payload.
+     */
+    struct PeerWrite {
+        uint32_t peerId = 0U;                   //!< Destination peer ID.
+        uint8_t function = 0U;                  //!< Network function.
+        uint8_t subFunction = 0U;               //!< Network sub-function.
+        std::vector<uint8_t> data;              //!< Payload bytes.
+    };
+
+    /**
+     * @brief Captures subsequent peer writes with their payloads instead of sending them.
+     * @param network The TrafficNetwork instance.
+     * @param writes Vector receiving the captured writes.
+     */
+    static void capturePeerWriteData(network::TrafficNetwork& network, std::vector<PeerWrite>& writes);
+    /**
      * @brief Starts the shared traffic worker pool for ordered-task tests.
      * @param network The TrafficNetwork instance.
      */

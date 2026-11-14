@@ -92,11 +92,28 @@ void FNETestHooks::capturePeerWrites(TrafficNetwork& network, std::vector<uint32
     };
 }
 
+/* Captures subsequent peer writes with their payloads. */
+
+void FNETestHooks::capturePeerWriteData(TrafficNetwork& network, std::vector<PeerWrite>& writes)
+{
+    network.m_testPeerWriteDataHandler = [&writes](uint32_t peerId, FrameQueue::OpcodePair opcode, const uint8_t* data, uint32_t length) {
+        PeerWrite write;
+        write.peerId = peerId;
+        write.function = opcode.first;
+        write.subFunction = opcode.second;
+        if (data != nullptr && length > 0U) {
+            write.data.assign(data, data + length);
+        }
+        writes.push_back(write);
+    };
+}
+
 /* Clears the test peer-write capture callback. */
 
 void FNETestHooks::clearPeerWriteCapture(TrafficNetwork& network)
 {
     network.m_testPeerWriteHandler = nullptr;
+    network.m_testPeerWriteDataHandler = nullptr;
 }
 
 /* Captures the next metadata response payload and opcodes. */

@@ -49,6 +49,7 @@
 #include "fne/network/UnitRouteRegistry.h"
 #include "fne/network/RoamingConfig.h"
 #include "fne/network/SuidRegistrationTable.h"
+#include "fne/network/RoamingService.h"
 #include "fne/network/HAParameters.h"
 #include "fne/PatchStatusRegistry.h"
 #include "fne/CryptoContainer.h"
@@ -357,11 +358,25 @@ namespace network
          * @returns const RoamingConfig& Roaming configuration.
          */
         const RoamingConfig& p25RoamingConfig() const { return m_roamingConfig; }
+        /**
+         * @brief Gets the P25 roaming mobility service.
+         * @returns RoamingService* Roaming service (never nullptr).
+         */
+        RoamingService* roaming() const { return m_roaming; }
+        /**
+         * @brief Processes a ROAMING message received from an upstream master (PeerNetwork callback).
+         * @param peerId Upstream link's own peer ID (the HostFNE peer network key).
+         * @param subFunc ROAMING sub-function.
+         * @param[in] data ROAMING message.
+         * @param length Message length in bytes.
+         */
+        void processUpstreamRoaming(uint32_t peerId, uint8_t subFunc, const uint8_t* data, uint32_t length);
 
     private:
 #if defined(CATCH2_TEST_COMPILATION)
         friend class ::FNETestHooks;
         std::function<void(uint32_t, FrameQueue::OpcodePair)> m_testPeerWriteHandler;
+        std::function<void(uint32_t, FrameQueue::OpcodePair, const uint8_t*, uint32_t)> m_testPeerWriteDataHandler;
 #endif
         friend class MetadataNetwork;
         friend class callhandler::TagDMRData;
@@ -437,6 +452,67 @@ namespace network
         UnitRouteRegistry m_unitRouteRegistry;
         RoamingConfig m_roamingConfig;
         SuidRegistrationTable m_suidRegistrations;
+
+        /**
+         * @brief Connects the RoamingService to this network's peers, upstream links, routes and RID ACL.
+         * @ingroup fne_network
+         */
+        class RoamingHostAdapter : public RoamingServiceHost {
+        public:
+            /**
+             * @brief Initializes a new instance of the RoamingHostAdapter class.
+             * @param network Owning traffic network.
+             */
+            explicit RoamingHostAdapter(TrafficNetwork* network) : m_network(network) { /* stub */ }
+
+            /**
+             * @brief Sends an encoded ROAMING message on a downstream peer or upstream link.
+             * @param link Destination link.
+             * @param subFunc ROAMING sub-function.
+             * @param[in] data Encoded message.
+             * @param length Message length in bytes.
+             * @returns bool True if sent; otherwise, false.
+             */
+            bool sendRoaming(const RoamingLink& link, uint8_t subFunc, const uint8_t* data, uint32_t length) override;
+            /**
+             * @brief Checks the RID ACL: the unit must be present and enabled.
+             * @param unitId Home Unit ID.
+             * @returns bool True if authorized; otherwise, false.
+             */
+            bool isHomeUnitAuthorized(uint32_t unitId) override;
+            /**
+             * @brief Finds the host peer (home site) where a home unit is registered.
+             * @param unitId Home Unit ID.
+             * @returns uint32_t Host peer ID, or 0.
+             */
+            uint32_t findLocalUnitPeer(uint32_t unitId) override;
+            /**
+             * @brief Removes a home unit's registration at a home site.
+             * @param peerId Host peer ID.
+             * @param unitId Home Unit ID.
+             */
+            void removeLocalUnitRegistration(uint32_t peerId, uint32_t unitId) override;
+            /**
+             * @brief Points the SUID route at a link.
+             * @param suid Subscriber SUID.
+             * @param link Next-hop link.
+             */
+            void setUnitRoute(const roaming::SUID& suid, const RoamingLink& link) override;
+            /**
+             * @brief Removes the SUID route when it uses the link.
+             * @param suid Subscriber SUID.
+             * @param link Next-hop link.
+             */
+            void eraseUnitRoute(const roaming::SUID& suid, const RoamingLink& link) override;
+
+        private:
+            TrafficNetwork* m_network;
+        };
+        RoamingHostAdapter* m_roamingHost;
+        RoamingService* m_roaming;
+        Timer m_roamingRevalidateTimer;
+        std::unordered_map<uint32_t, bool> m_upstreamRoamingState;
+        std::mutex m_upstreamRoamingMutex;
         SubscriberOperationStore m_subscriberOperations;
         concurrent::shared_unordered_map<uint32_t, std::vector<uint32_t>> m_ccPeerMap;
         static std::timed_mutex s_keyQueueMutex;
@@ -757,6 +833,17 @@ namespace network
              * @param now Current time in milliseconds.
              */
             static void kekKeyRequest(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+            /**
+             * @brief Handles NET_FUNC::ROAMING packets from downstream peers.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void roaming(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
         };
 
         /**
@@ -959,6 +1046,19 @@ namespace network
          * @param peerId Peer ID.
          */
         void erasePeer(uint32_t peerId);
+        /**
+         * @brief Sends an encoded ROAMING message on a downstream peer (writePeer) or upstream link (writeRoaming).
+         * @param link Destination link.
+         * @param subFunc ROAMING sub-function.
+         * @param[in] data Encoded message.
+         * @param length Message length in bytes.
+         * @returns bool True if sent; otherwise, false.
+         */
+        bool writeRoamingToLink(const RoamingLink& link, uint8_t subFunc, const uint8_t* data, uint32_t length);
+        /**
+         * @brief Raises or drops RoamingService upstream links when an upstream PeerNetwork's negotiated state changes.
+         */
+        void updateUpstreamRoamingLinks();
         /**
          * @brief Helper to determine if the peer is local to this master.
          * @param peerId Peer ID.

@@ -288,6 +288,13 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                         }
 
                         network->writePeerACK(peerId, streamId, buffer, ackLength);
+
+                        // P25 roaming link state for the mobility service (spec 2.3, 2.4)
+                        RoamingLink roamingLink;
+                        roamingLink.peerId = peerId;
+                        roamingLink.upstream = false;
+                        network->m_roaming->linkUp(roamingLink, roamingLogin == RoamingLogin::CAPABLE, neighborOffer,
+                            peerRoaming.netId, peerRoaming.sysId);
                         LogInfoEx(LOG_MASTER, "PEER %u RPTC ACK, completed the configuration exchange", peerId);
 
                         // setup the affiliations list for this peer

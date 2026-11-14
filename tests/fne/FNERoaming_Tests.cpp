@@ -540,3 +540,80 @@ TEST_CASE("FNE peer teardown clears foreign SUID routes when the peer has no aff
     // another peer's foreign route is untouched
     CHECK(FNETestHooks::findSuidRoute(harness.traffic, other) == 2002U);
 }
+
+TEST_CASE("FNE dispatches ROAMING frames to the mobility service on negotiated links", "[fne][roaming][dispatch]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));                 // this FNE is the home of $911
+    harness.radios.addEntry(0x0F4240U, true, "home roamer");
+
+    const RoamingLink fne13B = { 2001U, false };
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    harness.traffic.roaming()->linkUp(fne13B, true, true, 0xDEE00U, 0x13BU);
+    const RoamingLink oldPeer = { 2002U, false };
+    FNETestHooks::addPeer(harness.traffic, 2002U, network::NET_STAT_RUNNING, true);
+    harness.traffic.roaming()->linkUp(oldPeer, false, false, 0U, 0U);
+
+    std::vector<FNETestHooks::PeerWrite> writes;
+    FNETestHooks::capturePeerWriteData(harness.traffic, writes);
+
+    // ROAM_SERVING_REG known-answer bytes (Task 2): $DEE00.$911.0F4240 served by $DEE00.$13B RFSS 1
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    const std::vector<uint8_t> expectedRsp = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, 0x01U, 0x00U };
+
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2001U, reg);
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0U].peerId == 2001U);
+    CHECK(writes[0U].function == network::NET_FUNC::ROAMING);
+    CHECK(writes[0U].subFunction == network::NET_SUBFUNC::ROAM_SERVING_REG_RSP);
+    CHECK(writes[0U].data == expectedRsp);
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, SUID{ 0xDEE00U, 0x911U, 0x0F4240U }) == 2001U);
+    REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+
+    // a link that did not negotiate roaming is ignored
+    writes.clear();
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2002U, reg);
+    CHECK(writes.empty());
+
+    // the SU registering on one of this system's own sites deregisters the serving RFSS (Roamed)
+    FNETestHooks::registerP25Unit(harness.traffic, 501U, 0x0F4240U);
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0U].peerId == 2001U);
+    CHECK(writes[0U].subFunction == network::NET_SUBFUNC::ROAM_HOME_DEREG);
+    REQUIRE(writes[0U].data.size() == MSG_ROAM_HOME_DEREG_LEN);
+    CHECK(writes[0U].data[14U] == RoamQualifier::ROAMED);
+    CHECK(harness.traffic.roaming()->homeRecords().empty());
+
+    // peer teardown drops the link
+    FNETestHooks::teardownPeer(harness.traffic, 2001U);
+    CHECK_FALSE(harness.traffic.roaming()->isLinkCapable(fne13B));
+}
+
+TEST_CASE("FNE ignores unit registrations from a neighbor FNE for the home-site deregistration", "[fne][roaming][dispatch]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));
+    harness.radios.addEntry(0x0F4240U, true, "home roamer");
+
+    const RoamingLink fne13B = { 2001U, false };
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    harness.traffic.roaming()->linkUp(fne13B, true, true, 0xDEE00U, 0x13BU);
+    network::FNEPeerConnection& neighbor = FNETestHooks::addPeer(harness.traffic, 2003U, network::NET_STAT_RUNNING, true);
+    neighbor.peerClass(network::PEER_CONN_CLASS_NEIGHBOR);
+
+    std::vector<FNETestHooks::PeerWrite> writes;
+    FNETestHooks::capturePeerWriteData(harness.traffic, writes);
+
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2001U, reg);
+    REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+    writes.clear();
+
+    // a neighbor FNE is another system: its bare Unit IDs are not registrations on a home site of this system
+    FNETestHooks::registerP25Unit(harness.traffic, 2003U, 0x0F4240U);
+    CHECK(writes.empty());
+    CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
+}
