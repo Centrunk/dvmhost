@@ -217,13 +217,15 @@ namespace p25
             };
 
             /**
-             * @brief RetryTime hold-off after a FAILED outcome.
+             * @brief RetryTime hold-off after a FAILED outcome, or the late-success marker left by a deregistration
+             *  while the first registration was pending.
              * @ingroup host_lookups
              */
             struct HoldOff {
                 uint32_t remainingMs = 0U;              //!< Time left.
-                uint32_t txnId = 0U;                    //!< Transaction that failed.
-                bool denied = false;                    //!< The SU was denied on air.
+                uint32_t txnId = 0U;                    //!< Transaction that failed or was abandoned.
+                bool denied = false;                    //!< The SU is not served here; a late success sends one Serving Deregistration.
+                bool deregistered = false;              //!< Armed by a deregistration (never holds off a new request).
             };
 
             /** @brief Deferred sends run after the mutex is released. */

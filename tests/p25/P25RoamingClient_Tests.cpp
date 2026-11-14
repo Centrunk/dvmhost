@@ -352,6 +352,46 @@ TEST_CASE("P25 roaming client timeout, hold-off and late responses", "[p25][roam
         CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
     }
 
+    SECTION("Deregistration_While_The_First_Registration_Is_Pending_Deregisters_A_Late_Success") {
+        REQUIRE(rig.client.requestRegistration(ROAMER, true) == P25RoamingClient::RequestResult::SENT);
+        CHECK_FALSE(rig.client.servingDeregistration(ROAMER));
+        CHECK_FALSE(rig.client.isPending(ROAMER));
+        CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+
+        // the home's success arrives after the SU left: exactly one Serving Deregistration so the home does not
+        //  record the SU as served here for expires
+        rig.respond(RoamResult::SUCCESS);
+        CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+        CHECK(rig.last(NET_SUBFUNC::ROAM_SERVING_DEREG).suid == ROAMER);
+        CHECK(rig.outcomes.empty());
+        CHECK_FALSE(rig.client.isRoamer(ROAMER));
+
+        rig.respond(RoamResult::SUCCESS);
+        CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+    }
+
+    SECTION("Deregistration_While_Pending_Does_Not_Hold_Off_A_New_Registration") {
+        REQUIRE(rig.client.requestRegistration(ROAMER, true) == P25RoamingClient::RequestResult::SENT);
+        const RoamingMessage first = rig.last(NET_SUBFUNC::ROAM_SERVING_REG);
+        CHECK_FALSE(rig.client.servingDeregistration(ROAMER));
+
+        // the SU registers again at once; the abandoned transaction's success is then stale
+        REQUIRE(rig.client.requestRegistration(ROAMER, true) == P25RoamingClient::RequestResult::SENT);
+        RoamingMessage stale;
+        stale.subFunc = NET_SUBFUNC::ROAM_SERVING_REG_RSP;
+        stale.txnId = first.txnId;
+        stale.suid = ROAMER;
+        stale.result = RoamResult::SUCCESS;
+        stale.expires = ROAM_DEFAULT_EXPIRES;
+        stale.access = RoamAccess::FULL;
+        rig.deliver(stale);
+        CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+
+        rig.respond(RoamResult::SUCCESS);
+        CHECK(rig.client.isRoamer(ROAMER));
+        CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+    }
+
     SECTION("Late_Success_After_Local_Admission_Is_Dropped") {
         REQUIRE(rig.client.requestRegistration(ROAMER, true) == P25RoamingClient::RequestResult::SENT);
         rig.client.clock(5000U);

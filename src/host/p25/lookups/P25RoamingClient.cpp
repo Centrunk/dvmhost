@@ -135,8 +135,13 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
             return RequestResult::PENDING;
         }
 
-        // no new request within RetryTime of a FAILED outcome (spec 4.1 step 8)
-        if (m_holdOff.find(key) != m_holdOff.end()) {
+        // no new request within RetryTime of a FAILED outcome (spec 4.1 step 8); the marker a deregistration leaves
+        //  does not hold off a new request, whose own response then supersedes the abandoned transaction
+        auto hold = m_holdOff.find(key);
+        if (hold != m_holdOff.end() && hold->second.deregistered) {
+            m_holdOff.erase(hold);
+        }
+        else if (hold != m_holdOff.end()) {
             return RequestResult::HELD_OFF;
         }
 
@@ -179,7 +184,22 @@ bool P25RoamingClient::servingDeregistration(const SUID& suid)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         const bool held = m_roamers.erase(key) > 0U;
-        m_pending.erase(key);
+        auto pending = m_pending.find(key);
+        if (pending != m_pending.end()) {
+            // the SU leaves before the home answered its first registration: a late success must still be
+            //  deregistered, or the home records the SU as served here until expires (spec 4.1 step 9)
+            if (!held) {
+                HoldOff hold;
+                hold.remainingMs = ROAM_RETRY_TIME_MS;
+                hold.txnId = pending->second.txnId;
+                hold.denied = true;
+                hold.deregistered = true;
+                m_holdOff[key] = hold;
+            }
+
+            m_pending.erase(pending);
+        }
+
         if (!held) {
             return false;
         }
