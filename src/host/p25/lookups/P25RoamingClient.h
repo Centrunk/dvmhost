@@ -224,7 +224,7 @@ namespace p25
 
             mutable std::mutex m_mutex;
             uint32_t m_homeTimeoutMs;
-            bool m_lastCapable;
+            bool m_linkDown;                            //!< The link was seen not roaming capable; resync when it returns.
             std::map<uint64_t, Pending> m_pending;
             std::map<uint64_t, Roamer> m_roamers;
             std::map<uint64_t, HoldOff> m_holdOff;

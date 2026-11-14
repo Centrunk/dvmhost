@@ -435,6 +435,36 @@ TEST_CASE("P25 roaming client refresh and link resynchronisation", "[p25][roamin
         CHECK(resync.suid == ROAMER);
         CHECK(resync.presence == RoamPresence::NOT_CONFIRMED);
     }
+
+    SECTION("SU_Request_Between_Restore_And_Clock_Does_Not_Skip_Resynchronisation") {
+        rig.capable = false;
+        rig.client.clock(1U);
+        rig.capable = true;
+        const SUID other = { 0xBB800U, 0x002U, 1003U };
+        REQUIRE(rig.client.requestRegistration(other, true) == P25RoamingClient::RequestResult::SENT);
+
+        rig.sends.clear();
+        rig.client.clock(1U);
+        REQUIRE(rig.count(NET_SUBFUNC::ROAM_SERVING_REG) == 1U);
+        const RoamingMessage resync = rig.last(NET_SUBFUNC::ROAM_SERVING_REG);
+        CHECK(resync.suid == ROAMER);
+        CHECK(resync.presence == RoamPresence::NOT_CONFIRMED);
+    }
+
+    SECTION("Pending_Fails_On_Any_Clock_Without_A_Roaming_Link") {
+        rig.capable = false;
+        rig.client.clock(1U);
+        rig.capable = true;
+        const SUID other = { 0xBB800U, 0x002U, 1004U };
+        REQUIRE(rig.client.requestRegistration(other, true) == P25RoamingClient::RequestResult::SENT);
+
+        rig.capable = false;
+        rig.client.clock(1U);
+        REQUIRE(rig.outcomes.size() == 1U);
+        CHECK(rig.outcomes[0U].suid == other);
+        CHECK(rig.outcomes[0U].outcome == P25RoamingClient::Outcome::FAILED);
+        CHECK_FALSE(rig.client.isPending(other));
+    }
 }
 
 TEST_CASE("P25 roaming client Home Deregistration, Query and Serving Deregistration", "[p25][roaming][client]")
@@ -480,6 +510,38 @@ TEST_CASE("P25 roaming client Home Deregistration, Query and Serving Deregistrat
         rig.respond(RoamResult::SUCCESS);
         CHECK_FALSE(rig.client.isRoamer(ROAMER));
         CHECK(rig.outcomes.size() == 1U);
+    }
+
+    SECTION("Out_Of_Range_SUID_Does_Not_Alias_A_Held_SU") {
+        // SUID::pack() masks each field, so this SUID packs to ROAMER's key
+        const SUID alias = { ROAMER.netId | (ROAM_MAX_WACN + 1U), ROAMER.sysId, ROAMER.unitId };
+        REQUIRE(alias.pack() == ROAMER.pack());
+
+        rig.request(NET_SUBFUNC::ROAM_QUERY, ROAMER, 0x80U, RoamQueryType::FORCED);
+        CHECK(rig.client.requestRegistration(alias, true) == P25RoamingClient::RequestResult::NOT_CAPABLE);
+        CHECK_FALSE(rig.client.isRoamer(alias));
+        CHECK_FALSE(rig.client.isPending(alias));
+        CHECK_FALSE(rig.client.isEmergencyOnly(alias));
+        CHECK_FALSE(rig.client.servingDeregistration(alias));
+        rig.client.forget(alias);
+        CHECK(rig.client.isRoamer(ROAMER));
+        CHECK(rig.count(NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+
+        // the Forced-query timer was not reset by the alias, so ROAMER is still deregistered on time
+        rig.client.clock(5000U);
+        CHECK(rig.forcedExpired.size() == 1U);
+    }
+
+    SECTION("Out_Of_Range_SUID_Does_Not_Alias_A_Pending_SU") {
+        const SUID alias = { ROAMER.netId, ROAMER.sysId | (ROAM_MAX_SYSID + 1U), ROAMER.unitId };
+        REQUIRE(alias.pack() == ROAMER.pack());
+
+        REQUIRE(rig.client.requestRegistration(ROAMER, false) == P25RoamingClient::RequestResult::SENT);
+        CHECK(rig.client.requestRegistration(alias, true) == P25RoamingClient::RequestResult::NOT_CAPABLE);
+        rig.respond(RoamResult::SUCCESS);
+        REQUIRE_FALSE(rig.outcomes.empty());
+        CHECK(rig.outcomes.back().outcome == P25RoamingClient::Outcome::SUCCESS);
+        CHECK_FALSE(rig.outcomes.back().onAir);
     }
 
     SECTION("Home_Deregistration_Not_Found") {

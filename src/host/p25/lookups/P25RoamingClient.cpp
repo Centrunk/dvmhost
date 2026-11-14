@@ -25,7 +25,7 @@ using namespace network::roaming;
 P25RoamingClient::P25RoamingClient(uint32_t homeTimeoutMs) :
     m_mutex(),
     m_homeTimeoutMs((homeTimeoutMs > 0U) ? homeTimeoutMs : ROAM_DEFAULT_HOME_TIMEOUT_MS),
-    m_lastCapable(false),
+    m_linkDown(false),
     m_pending(),
     m_roamers(),
     m_holdOff(),
@@ -103,6 +103,13 @@ void P25RoamingClient::setForcedExpiryCallback(std::function<void(const SUID&)>&
 
 P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID& suid, bool confirmed)
 {
+    // validate before any lookup; SUID::pack() masks each field, so an out-of-range SUID would alias another SU's key
+    if (!suid.valid()) {
+        LogError(LOG_P25, "P25 ROAMING, SUID out of range, Serving Registration not sent, suid = $%05X.$%03X.%u", suid.netId,
+            suid.sysId, suid.unitId);
+        return RequestResult::NOT_CAPABLE;
+    }
+
     RfssIdentity serving;
     const bool capable = context(serving);
     const uint64_t key = suid.pack();
@@ -134,17 +141,10 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
         }
 
         if (!capable) {
+            // the next clock() that sees the link capable again resynchronises every held roamer (spec 6)
+            m_linkDown = true;
             return RequestResult::NOT_CAPABLE;
         }
-
-        // validate before recording a pending entry; an unencodable SUID could never be answered
-        if (!suid.valid()) {
-            LogError(LOG_P25, "P25 ROAMING, SUID out of range, Serving Registration not sent, suid = $%05X.$%03X.%u", suid.netId,
-                suid.sysId, suid.unitId);
-            return RequestResult::NOT_CAPABLE;
-        }
-
-        m_lastCapable = true;
 
         Pending entry;
         entry.suid = suid;
@@ -171,6 +171,10 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
 
 bool P25RoamingClient::servingDeregistration(const SUID& suid)
 {
+    if (!suid.valid()) {
+        return false;
+    }
+
     const uint64_t key = suid.pack();
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -188,6 +192,10 @@ bool P25RoamingClient::servingDeregistration(const SUID& suid)
 
 void P25RoamingClient::forget(const SUID& suid)
 {
+    if (!suid.valid()) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
     m_roamers.erase(suid.pack());
     m_pending.erase(suid.pack());
@@ -197,6 +205,10 @@ void P25RoamingClient::forget(const SUID& suid)
 
 bool P25RoamingClient::isRoamer(const SUID& suid) const
 {
+    if (!suid.valid()) {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_roamers.find(suid.pack()) != m_roamers.end();
 }
@@ -205,6 +217,10 @@ bool P25RoamingClient::isRoamer(const SUID& suid) const
 
 bool P25RoamingClient::isPending(const SUID& suid) const
 {
+    if (!suid.valid()) {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_pending.find(suid.pack()) != m_pending.end();
 }
@@ -213,6 +229,10 @@ bool P25RoamingClient::isPending(const SUID& suid) const
 
 bool P25RoamingClient::isEmergencyOnly(const SUID& suid) const
 {
+    if (!suid.valid()) {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_roamers.find(suid.pack());
     return it != m_roamers.end() && it->second.profile.access == RoamAccess::EMERGENCY_ONLY;
@@ -306,13 +326,15 @@ void P25RoamingClient::clock(uint32_t ms)
     ActionList actions;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        const bool linkLost = m_lastCapable && !capable;
-        const bool linkRestored = !m_lastCapable && capable;
-        m_lastCapable = capable;
+        // resynchronise only after the link was seen down; a link never seen down needs no resync
+        const bool linkRestored = m_linkDown && capable;
+        m_linkDown = !capable;
 
         for (auto it = m_pending.begin(); it != m_pending.end();) {
             it->second.elapsedMs += ms;
-            if (linkLost || it->second.elapsedMs >= m_homeTimeoutMs) {
+
+            // without a roaming link no response can arrive, so a pending entry completes as FAILED at once (spec 6)
+            if (!capable || it->second.elapsedMs >= m_homeTimeoutMs) {
                 failed.push_back(it->second);
                 it = m_pending.erase(it);
             }
