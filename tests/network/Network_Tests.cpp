@@ -64,6 +64,17 @@ public:
      * @param enabled True to enable diagnostic transfer, false to disable.
      */
     void setAllowDiagnosticTransferForTest(bool enabled) { m_allowDiagnosticTransfer = enabled; }
+
+    /**
+     * @brief Builds the p25Roaming RPTC JSON exactly as writeConfig() appends it.
+     * @returns json::object Configuration object holding only the roaming key, if offered.
+     */
+    json::object roamingConfigForTest() const
+    {
+        json::object config = json::object();
+        appendP25RoamingConfig(config);
+        return config;
+    }
     /**
      * @brief Gets the allow activity transfer flag for testing purposes.
      * @returns bool True if activity transfer is allowed, false otherwise.
@@ -945,4 +956,82 @@ TEST_CASE("Disabled open does not consume the initial connection", "[network][lo
 
     REQUIRE(network.readyToAttempt());
     network.close();
+}
+
+TEST_CASE("Network negotiates P25 roaming from the config ack", "[network][loopback][roaming]")
+{
+    const uint16_t masterPort = reserveLoopbackPort();
+    REQUIRE(masterPort != 0U);
+
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+
+    Socket masterReceiver("127.0.0.1", masterPort);
+    REQUIRE(masterReceiver.open(AF_INET));
+
+    FrameQueue masterSenderQueue(&masterReceiver, 0xF3F4U, false);
+
+    sockaddr_storage networkDestination = {};
+    uint32_t networkDestinationLen = 0U;
+    REQUIRE(Socket::lookup("127.0.0.1", localPort, networkDestination, networkDestinationLen) == 0);
+
+    TestableNetwork network("127.0.0.1", masterPort, localPort, 9010U, "loopback-password", true, false, true, false, false, false, true, true, true, true, false, false);
+    network.enable(true);
+    REQUIRE(network.open());
+
+    // the first clock opens the peer socket and sends the login
+    network.clock(11000U);
+
+    // payload bytes 6-11: flags $C0, WACN $DEE00, System ID $13B (spec 3.1); bytes 12-15 are the FNE's zero trailer
+    const std::vector<uint8_t> extendedAck = { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+        0xC0U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x00U, 0x00U, 0x00U, 0x00U };
+    const std::vector<uint8_t> legacyAck = { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U };
+    const std::vector<uint8_t> truncatedAck = { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0xC0U, 0x0DU, 0xEEU };
+
+    auto sendConfigAck = [&](const std::vector<uint8_t>& payload) {
+        network.setStatusForTest(NET_STAT_WAITING_CONFIG);
+        REQUIRE(sendLoopbackFrame(masterSenderQueue, networkDestination, networkDestinationLen, payload,
+            { NET_FUNC::ACK, NET_SUBFUNC::NOP }, 0x12345678U, 9010U, 9010U, 0U));
+        network.clock(1000U);
+        REQUIRE(network.getStatusForTest() == NET_STAT_RUNNING);
+    };
+
+    // a peer that did not offer roaming never activates it, even when the master is capable
+    CHECK(network.roamingConfigForTest().count("p25Roaming") == 0U);
+    sendConfigAck(extendedAck);
+    CHECK_FALSE(network.isP25RoamingActive());
+
+    network.setP25RoamingIdentity(0xDEE00U, 0x13BU, 0x01U);
+    json::object config = network.roamingConfigForTest();
+    REQUIRE(config["p25Roaming"].is<json::object>());
+    json::object roam = config["p25Roaming"].get<json::object>();
+    CHECK(roam["version"].get<uint32_t>() == 1U);
+    CHECK(roam["netId"].get<uint32_t>() == 0xDEE00U);
+    CHECK(roam["sysId"].get<uint32_t>() == 0x13BU);
+    CHECK(roam["rfssId"].get<uint32_t>() == 1U);
+
+    // an older master sends a 1-byte payload without the capability bit
+    sendConfigAck(legacyAck);
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK(network.getMasterP25NetId() == 0U);
+
+    sendConfigAck(extendedAck);
+    CHECK(network.isP25RoamingActive());
+    CHECK(network.getMasterP25NetId() == 0xDEE00U);
+    CHECK(network.getMasterP25SysId() == 0x13BU);
+
+    // a capability bit without the identity bytes is malformed and leaves roaming off
+    sendConfigAck(truncatedAck);
+    CHECK_FALSE(network.isP25RoamingActive());
+
+    // the running state gates the flag
+    sendConfigAck(extendedAck);
+    REQUIRE(network.isP25RoamingActive());
+    network.setStatusForTest(NET_STAT_WAITING_CONNECT);
+    CHECK_FALSE(network.isP25RoamingActive());
+
+    network.setP25RoamingIdentity(0U, 0U, 0U);
+    CHECK(network.roamingConfigForTest().count("p25Roaming") == 0U);
+
+    masterReceiver.close();
 }

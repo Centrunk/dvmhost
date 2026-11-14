@@ -81,7 +81,14 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
     m_nxdnInCallCallback(nullptr),
     m_analogInCallCallback(nullptr),
     m_keyRespCallback(nullptr),
-    m_kekKeyRespCallback(nullptr)
+    m_kekKeyRespCallback(nullptr),
+    m_p25RoamingConfigured(false),
+    m_p25RoamingNetId(0U),
+    m_p25RoamingSysId(0U),
+    m_p25RoamingRfssId(0U),
+    m_p25RoamingActive(false),
+    m_masterP25NetId(0U),
+    m_masterP25SysId(0U)
 {
     assert(!address.empty());
     assert(port > 0U);
@@ -226,6 +233,35 @@ void Network::setLookups(lookups::RadioIdLookup* ridLookup, lookups::TalkgroupRu
 void Network::setRadioAliasLookups(lookups::RadioAliasLookup* ridAliasLookup)
 {
     m_ridAliasLookup = ridAliasLookup;
+}
+
+/* Sets the P25 identity offered to the master for roaming negotiation. */
+
+void Network::setP25RoamingIdentity(uint32_t netId, uint32_t sysId, uint8_t rfssId)
+{
+    m_p25RoamingConfigured = (netId != 0U && sysId != 0U && roaming::SUID::validSystem(netId, sysId));
+    m_p25RoamingNetId = m_p25RoamingConfigured ? netId : 0U;
+    m_p25RoamingSysId = m_p25RoamingConfigured ? sysId : 0U;
+    m_p25RoamingRfssId = m_p25RoamingConfigured ? rfssId : 0U;
+}
+
+/* Gets whether P25 roaming is active on the link to the master. */
+
+bool Network::isP25RoamingActive() const
+{
+    return m_p25RoamingActive && m_status == NET_STAT_RUNNING;
+}
+
+/* Appends the p25Roaming object to an RPTC configuration. */
+
+void Network::appendP25RoamingConfig(json::object& config) const
+{
+    if (!m_p25RoamingConfigured) {
+        return;
+    }
+
+    json::object roam = roaming::RoamingCodec::buildConfig(m_p25RoamingNetId, m_p25RoamingSysId, m_p25RoamingRfssId);
+    config["p25Roaming"].set<json::object>(roam);
 }
 
 /* Sets metadata configuration settings from the modem. */
@@ -696,6 +732,9 @@ bool Network::writeConfig()
     config["conventionalPeer"].set<bool>(m_metadata->isConventional);               // Conventional Peer Marker
 
     config["software"].set<std::string>(std::string(software));
+
+    // offer the P25 identity for roaming negotiation (spec 3.1); absent when not configured
+    appendP25RoamingConfig(config);
 
     json::value v = json::value(config);
     std::string json = v.serialize();

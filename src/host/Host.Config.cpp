@@ -1051,6 +1051,14 @@ bool Host::createNetwork()
             m_network->setKMFPresharedKey(kmfPresharedKey);
         }
 
+        // offer this site's P25 identity for roaming negotiation with the FNE (spec 2.2, 3.1); only a site
+        // that admits roaming SUs offers it, so conventional, DVRS and voice channel hosts sharing the FNE are
+        // never subject to the identity check
+        bool p25AllowRoaming = m_conf["protocols"]["p25"]["allowRoaming"].as<bool>(false);
+        if (m_p25Enabled && p25AllowRoaming) {
+            m_network->setP25RoamingIdentity(m_p25NetId, m_sysId, m_p25RfssId);
+        }
+
         m_network->enable(true);
         bool ret = m_network->open();
         if (!ret) {

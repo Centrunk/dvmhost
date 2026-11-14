@@ -20,6 +20,7 @@
 #include "common/network/BaseNetwork.h"
 #include "common/network/RTPHeader.h"
 #include "common/network/RTPFNEHeader.h"
+#include "common/network/P25Roaming.h"
 #include "common/network/PacketBuffer.h"
 #include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/RadioIdLookup.h"
@@ -359,6 +360,30 @@ namespace network
          */
         void setKEKKeyResponseCallback(std::function<void(uint32_t, p25::kmm::KeyItem, uint8_t, uint8_t)>&& callback) { m_kekKeyRespCallback = callback; }
 
+        /**
+         * @brief Sets the P25 identity offered to the master for roaming negotiation (spec 3.1).
+         *  A zero or out-of-range WACN ID or System ID withdraws the offer.
+         * @param netId P25 WACN ID (20-bit).
+         * @param sysId P25 System ID (12-bit).
+         * @param rfssId P25 RFSS ID (0 for a downstream FNE).
+         */
+        void setP25RoamingIdentity(uint32_t netId, uint32_t sysId, uint8_t rfssId);
+        /**
+         * @brief Gets whether P25 roaming is active on the link to the master.
+         * @returns bool True if this peer offered roaming, the master answered capable and the link is running; otherwise, false.
+         */
+        bool isP25RoamingActive() const;
+        /**
+         * @brief Gets the master's P25 WACN ID learned from the RPTC ACK.
+         * @returns uint32_t Master WACN ID, or 0 when roaming is not negotiated.
+         */
+        uint32_t getMasterP25NetId() const { return m_masterP25NetId; }
+        /**
+         * @brief Gets the master's P25 System ID learned from the RPTC ACK.
+         * @returns uint32_t Master System ID, or 0 when roaming is not negotiated.
+         */
+        uint32_t getMasterP25SysId() const { return m_masterP25SysId; }
+
     public:
         /**
          * @brief Last received RTP sequence number.
@@ -499,6 +524,21 @@ namespace network
          *  (This is called once the master responds to a key KEK request.)
          */
         std::function<void(uint32_t rsi, p25::kmm::KeyItem ki, uint8_t algId, uint8_t keyLength)> m_kekKeyRespCallback;
+
+        /** @brief Flag indicating this peer offers a P25 identity for roaming negotiation. */
+        bool m_p25RoamingConfigured;
+        /** @brief Offered P25 WACN ID. */
+        uint32_t m_p25RoamingNetId;
+        /** @brief Offered P25 System ID. */
+        uint32_t m_p25RoamingSysId;
+        /** @brief Offered P25 RFSS ID. */
+        uint8_t m_p25RoamingRfssId;
+        /** @brief Flag indicating the master answered P25 roaming capable to this peer's offer. */
+        bool m_p25RoamingActive;
+        /** @brief Master P25 WACN ID from the RPTC ACK. */
+        uint32_t m_masterP25NetId;
+        /** @brief Master P25 System ID from the RPTC ACK. */
+        uint32_t m_masterP25SysId;
 
         using PacketHandlerFunc = bool (*)(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
             const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
@@ -773,6 +813,11 @@ namespace network
          * @returns bool True, if configuration response was sent, otherwise false.
          */
         virtual bool writeConfig();
+        /**
+         * @brief Appends the p25Roaming object to an RPTC configuration when this peer offers a P25 identity.
+         * @param[in,out] config RPTC configuration JSON.
+         */
+        void appendP25RoamingConfig(json::object& config) const;
         /**
          * @brief Writes a network stay-alive ping.
          * \code{.unparsed}

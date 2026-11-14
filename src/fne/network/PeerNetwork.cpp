@@ -747,6 +747,9 @@ bool PeerNetwork::writeConfig()
 
     config["software"].set<std::string>(std::string(software));                     // Software ID
 
+    // offer this FNE's P25 identity for roaming negotiation (spec 3.1); absent when not configured
+    appendP25RoamingConfig(config);
+
     json::value v = json::value(config);
     std::string json = v.serialize();
 

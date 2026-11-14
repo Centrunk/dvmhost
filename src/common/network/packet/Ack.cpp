@@ -54,6 +54,27 @@ bool Network::PacketHandler::ack(Network* network, uint32_t peerId, uint32_t str
 
             network->pktSeq(true);
 
+            // P25 roaming is active only when this peer offered it and the master answered capable (spec 3.1);
+            //  older masters send a 1-byte payload without the capability bit
+            network->m_p25RoamingActive = false;
+            network->m_masterP25NetId = 0U;
+            network->m_masterP25SysId = 0U;
+            if (network->m_p25RoamingConfigured && length > 6) {
+                bool capable = false;
+                uint32_t masterNetId = 0U;
+                uint32_t masterSysId = 0U;
+                if (roaming::RoamingCodec::decodeConfigAck(buffer + 6U, static_cast<uint32_t>(length - 6), capable, masterNetId, masterSysId) && capable) {
+                    network->m_p25RoamingActive = true;
+                    network->m_masterP25NetId = masterNetId;
+                    network->m_masterP25SysId = masterSysId;
+                    LogInfoEx(LOG_NET, "PEER %u RPTC ACK, P25 roaming negotiated, master netId = $%05X, sysId = $%03X", network->m_peerId,
+                        masterNetId, masterSysId);
+                }
+                else {
+                    LogInfoEx(LOG_NET, "PEER %u RPTC ACK, master is not P25 roaming capable", network->m_peerId);
+                }
+            }
+
             // fire off peer connected callback if we have one
             if (network->m_peerConnectedCallback != nullptr) {
                 network->m_peerConnectedCallback();
