@@ -88,7 +88,8 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
     m_p25RoamingRfssId(0U),
     m_p25RoamingActive(false),
     m_masterP25NetId(0U),
-    m_masterP25SysId(0U)
+    m_masterP25SysId(0U),
+    m_p25RoamingCallback(nullptr)
 {
     assert(!address.empty());
     assert(port > 0U);
@@ -264,6 +265,112 @@ void Network::appendP25RoamingConfig(json::object& config) const
     config["p25Roaming"].set<json::object>(roam);
 }
 
+/* Writes a P25 ROAMING mobility message to the master. */
+
+bool Network::writeRoaming(NET_SUBFUNC::ENUM subFunc, const uint8_t* data, uint32_t length)
+{
+    if (!isP25RoamingActive()) {
+        return false;
+    }
+
+    if (data == nullptr || length == 0U || length > roaming::MSG_ROAM_MAX_LEN) {
+        return false;
+    }
+
+    return writeMaster({ NET_FUNC::ROAMING, subFunc }, data, length, RTP_END_OF_CALL_SEQ, createStreamId());
+}
+
+/* Announces the registration of a foreign SU by SUID. */
+
+bool Network::announceUnitRegistrationSUID(const roaming::SUID& suid)
+{
+    return writeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, suid, 0U);
+}
+
+/* Announces the deregistration of a foreign SU by SUID. */
+
+bool Network::announceUnitDeregistrationSUID(const roaming::SUID& suid)
+{
+    return writeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID, suid, 0U);
+}
+
+/* Announces a foreign SU's group affiliation by SUID. */
+
+bool Network::announceGroupAffiliationSUID(const roaming::SUID& suid, uint32_t talkgroup)
+{
+    return writeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, suid, talkgroup);
+}
+
+/* Announces the removal of a foreign SU's group affiliation by SUID. */
+
+bool Network::announceGroupAffiliationRemovalSUID(const roaming::SUID& suid)
+{
+    return writeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID, suid, 0U);
+}
+
+/* Announces the complete foreign unit registration list by SUID. */
+
+bool Network::announceUnitRegUpdateSUID(const std::vector<roaming::SUID>& regs)
+{
+    if (!isP25RoamingActive()) {
+        return false;
+    }
+
+    std::vector<roaming::SuidAnnouncement> entries;
+    entries.reserve(regs.size());
+    for (const roaming::SUID& suid : regs) {
+        roaming::SuidAnnouncement entry;
+        entry.suid = suid;
+        entries.push_back(entry);
+    }
+
+    std::vector<uint8_t> payload = roaming::RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, entries);
+    if (payload.empty()) {
+        return false;
+    }
+
+    return writeMaster({ NET_FUNC::ANNOUNCE, NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID }, payload.data(), (uint32_t)payload.size(),
+        RTP_END_OF_CALL_SEQ, 0U, true);
+}
+
+/* Announces the complete foreign affiliation list by SUID. */
+
+bool Network::announceAffiliationUpdateSUID(const std::vector<roaming::SuidAnnouncement>& affs)
+{
+    if (!isP25RoamingActive()) {
+        return false;
+    }
+
+    std::vector<uint8_t> payload = roaming::RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affs);
+    if (payload.empty()) {
+        return false;
+    }
+
+    return writeMaster({ NET_FUNC::ANNOUNCE, NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID }, payload.data(), (uint32_t)payload.size(),
+        RTP_END_OF_CALL_SEQ, 0U, true);
+}
+
+/* Encodes and writes a single SUID announcement when roaming is negotiated. */
+
+bool Network::writeSuidAnnouncement(NET_SUBFUNC::ENUM subFunc, const roaming::SUID& suid, uint32_t talkgroup)
+{
+    if (!isP25RoamingActive()) {
+        return false;
+    }
+
+    roaming::SuidAnnouncement entry;
+    entry.suid = suid;
+    entry.talkgroup = talkgroup;
+
+    uint8_t buffer[roaming::MSG_ANNC_GRP_AFFIL_SUID_LEN];
+    const uint32_t length = roaming::RoamingCodec::encodeSuidAnnouncement(subFunc, entry, buffer, sizeof(buffer));
+    if (length == 0U) {
+        return false;
+    }
+
+    return writeMaster({ NET_FUNC::ANNOUNCE, subFunc }, buffer, length, RTP_END_OF_CALL_SEQ, 0U, true);
+}
+
 /* Sets metadata configuration settings from the modem. */
 
 void Network::setMetadata(const std::string& identity, uint32_t rxFrequency, uint32_t txFrequency, float txOffsetMhz, float chBandwidthKhz,
@@ -432,7 +539,9 @@ void Network::clock(uint32_t ms)
 
             { NET_FUNC::MST_DISC, &Network::PacketHandler::masterDisconnect },
 
-            { NET_FUNC::PONG, &Network::PacketHandler::pong }
+            { NET_FUNC::PONG, &Network::PacketHandler::pong },
+
+            { NET_FUNC::ROAMING, &Network::PacketHandler::roaming }
         };
 
         // dispatch to the appropriate handler based on the function opcode

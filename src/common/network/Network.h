@@ -384,6 +384,58 @@ namespace network
          */
         uint32_t getMasterP25SysId() const { return m_masterP25SysId; }
 
+        /**
+         * @brief Helper to set the P25 roaming message callback (invoked for NET_FUNC::ROAMING from the master).
+         * @param callback Callback receiving the ROAMING sub-function, payload and payload length.
+         */
+        void setP25RoamingCallback(std::function<void(uint8_t, const uint8_t*, uint32_t)>&& callback) { m_p25RoamingCallback = callback; }
+
+        /**
+         * @brief Writes a P25 ROAMING mobility message to the master (spec 3.5).
+         * @param subFunc ROAMING sub-function.
+         * @param[in] data Encoded ROAMING message.
+         * @param length Message length in bytes (at most roaming::MSG_ROAM_MAX_LEN).
+         * @returns bool True if the message was sent; false if roaming is not negotiated or the message is invalid.
+         */
+        virtual bool writeRoaming(NET_SUBFUNC::ENUM subFunc, const uint8_t* data, uint32_t length);
+        /**
+         * @brief Announces the registration of a foreign SU by SUID (ANNC_SUBFUNC_UNIT_REG_SUID).
+         * @param suid Foreign SUID.
+         * @returns bool True if sent; false if roaming is not negotiated or the SUID is out of range.
+         */
+        virtual bool announceUnitRegistrationSUID(const roaming::SUID& suid);
+        /**
+         * @brief Announces the deregistration of a foreign SU by SUID (ANNC_SUBFUNC_UNIT_DEREG_SUID).
+         * @param suid Foreign SUID.
+         * @returns bool True if sent; false if roaming is not negotiated or the SUID is out of range.
+         */
+        virtual bool announceUnitDeregistrationSUID(const roaming::SUID& suid);
+        /**
+         * @brief Announces a foreign SU's group affiliation by SUID (ANNC_SUBFUNC_GRP_AFFIL_SUID).
+         * @param suid Foreign SUID.
+         * @param talkgroup Local talkgroup ID (bare until sub-project 3c).
+         * @returns bool True if sent; false if roaming is not negotiated or a field is out of range.
+         */
+        virtual bool announceGroupAffiliationSUID(const roaming::SUID& suid, uint32_t talkgroup);
+        /**
+         * @brief Announces the removal of a foreign SU's group affiliation by SUID (ANNC_SUBFUNC_GRP_UNAFFIL_SUID).
+         * @param suid Foreign SUID.
+         * @returns bool True if sent; false if roaming is not negotiated or the SUID is out of range.
+         */
+        virtual bool announceGroupAffiliationRemovalSUID(const roaming::SUID& suid);
+        /**
+         * @brief Announces the complete foreign unit registration list by SUID (ANNC_SUBFUNC_UNIT_REGS_SUID).
+         * @param regs Foreign SUIDs registered at this site.
+         * @returns bool True if sent; false if roaming is not negotiated or an entry is invalid.
+         */
+        virtual bool announceUnitRegUpdateSUID(const std::vector<roaming::SUID>& regs);
+        /**
+         * @brief Announces the complete foreign affiliation list by SUID (ANNC_SUBFUNC_AFFILS_SUID).
+         * @param affs Foreign SUIDs and their local talkgroups.
+         * @returns bool True if sent; false if roaming is not negotiated or an entry is invalid.
+         */
+        virtual bool announceAffiliationUpdateSUID(const std::vector<roaming::SuidAnnouncement>& affs);
+
     public:
         /**
          * @brief Last received RTP sequence number.
@@ -540,6 +592,12 @@ namespace network
         /** @brief Master P25 System ID from the RPTC ACK. */
         uint32_t m_masterP25SysId;
 
+        /**
+         * @brief P25 Roaming Message Callback.
+         *  (This is called for each NET_FUNC::ROAMING frame received on a negotiated link.)
+         */
+        std::function<void(uint8_t subFunc, const uint8_t* data, uint32_t length)> m_p25RoamingCallback;
+
         using PacketHandlerFunc = bool (*)(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
             const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
 
@@ -695,6 +753,21 @@ namespace network
              */
             static bool pong(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
                 const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::ROAMING packets.
+             * @param network Instance of the Network class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing the ROAMING message.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool roaming(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
         };
 
         /**
@@ -818,6 +891,14 @@ namespace network
          * @param[in,out] config RPTC configuration JSON.
          */
         void appendP25RoamingConfig(json::object& config) const;
+        /**
+         * @brief Encodes and writes a single SUID announcement when roaming is negotiated.
+         * @param subFunc Announcement sub-function.
+         * @param suid Foreign SUID.
+         * @param talkgroup Local talkgroup ID (GRP_AFFIL_SUID only).
+         * @returns bool True if sent; otherwise, false.
+         */
+        bool writeSuidAnnouncement(NET_SUBFUNC::ENUM subFunc, const roaming::SUID& suid, uint32_t talkgroup);
         /**
          * @brief Writes a network stay-alive ping.
          * \code{.unparsed}

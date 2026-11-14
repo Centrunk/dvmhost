@@ -76,6 +76,11 @@ public:
         return config;
     }
     /**
+     * @brief Forces the negotiated P25 roaming state for transport tests.
+     * @param active True to mark roaming negotiated.
+     */
+    void setP25RoamingActiveForTest(bool active) { m_p25RoamingActive = active; }
+    /**
      * @brief Gets the allow activity transfer flag for testing purposes.
      * @returns bool True if activity transfer is allowed, false otherwise.
      */
@@ -194,6 +199,30 @@ static bool waitForFrameMessage(FrameQueue& queue, std::string& out, RTPHeader& 
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    return false;
+}
+
+/**
+ * @brief Waits for a frame with the given function, skipping unrelated frames (for example pings).
+ * @param queue Reference to the FrameQueue to read from.
+ * @param function Network function to wait for.
+ * @param[out] out String to store the received message.
+ * @param[out] fneHeader RTPFNEHeader of the received message.
+ * @returns bool True if a matching message was received, otherwise false.
+ */
+static bool waitForFunctionMessage(FrameQueue& queue, uint8_t function, std::string& out, RTPFNEHeader& fneHeader)
+{
+    for (uint32_t i = 0U; i < 8U; i++) {
+        RTPHeader rtpHeader;
+        if (!waitForFrameMessage(queue, out, rtpHeader, fneHeader)) {
+            return false;
+        }
+
+        if (fneHeader.getFunction() == function) {
+            return true;
+        }
     }
 
     return false;
@@ -1034,4 +1063,121 @@ TEST_CASE("Network negotiates P25 roaming from the config ack", "[network][loopb
     CHECK(network.roamingConfigForTest().count("p25Roaming") == 0U);
 
     masterReceiver.close();
+}
+
+TEST_CASE("Network carries P25 roaming frames and SUID announcements only on a negotiated link", "[network][loopback][roaming]")
+{
+    const uint16_t masterPort = reserveLoopbackPort();
+    REQUIRE(masterPort != 0U);
+
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+
+    Socket masterReceiver("127.0.0.1", masterPort);
+    REQUIRE(masterReceiver.open(AF_INET));
+
+    Socket metadataReceiver("127.0.0.1", masterPort + 1U);
+    REQUIRE(metadataReceiver.open(AF_INET));
+
+    FrameQueue masterReceiverQueue(&masterReceiver, 0x4141U, false);
+    FrameQueue masterSenderQueue(&masterReceiver, 0x4242U, false);
+    FrameQueue metadataReceiverQueue(&metadataReceiver, 0x4343U, false);
+
+    sockaddr_storage networkDestination = {};
+    uint32_t networkDestinationLen = 0U;
+    REQUIRE(Socket::lookup("127.0.0.1", localPort, networkDestination, networkDestinationLen) == 0);
+
+    TestableNetwork network("127.0.0.1", masterPort, localPort, 9011U, "loopback-password", true, false, true, false, false, false, true, true, true, true, false, false);
+    network.enable(true);
+    REQUIRE(network.open());
+
+    completeHandshake(network, masterReceiverQueue, masterSenderQueue, networkDestination, networkDestinationLen, 9011U);
+
+    uint32_t callbacks = 0U;
+    uint8_t receivedSubFunc = 0xFFU;
+    std::vector<uint8_t> received;
+    network.setP25RoamingCallback([&](uint8_t subFunc, const uint8_t* data, uint32_t length) {
+        ++callbacks;
+        receivedSubFunc = subFunc;
+        received.assign(data, data + length);
+    });
+
+    // ROAM_SERVING_REG known-answer bytes from tests/network/P25Roaming_Tests.cpp
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    const roaming::SUID suid = { 0xDEE00U, 0x911U, 0x0F4240U };
+
+    // not negotiated: nothing is sent and inbound ROAMING frames are dropped (spec 6, policy denial)
+    CHECK_FALSE(network.writeRoaming(NET_SUBFUNC::ROAM_SERVING_REG, reg.data(), (uint32_t)reg.size()));
+    CHECK_FALSE(network.announceUnitRegistrationSUID(suid));
+    REQUIRE(sendLoopbackFrame(masterSenderQueue, networkDestination, networkDestinationLen, reg,
+        { NET_FUNC::ROAMING, NET_SUBFUNC::ROAM_SERVING_REG }, 0x2468ACE0U, 9011U, 9011U, 0U));
+    network.clock(1000U);
+    CHECK(callbacks == 0U);
+
+    network.setP25RoamingActiveForTest(true);
+
+    REQUIRE(network.writeRoaming(NET_SUBFUNC::ROAM_SERVING_REG, reg.data(), (uint32_t)reg.size()));
+    std::string payload;
+    RTPFNEHeader fneHeader;
+    REQUIRE(waitForFunctionMessage(masterReceiverQueue, NET_FUNC::ROAMING, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ROAM_SERVING_REG);
+    CHECK(fneHeader.getStreamId() != 0U);
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == reg);
+
+    std::vector<uint8_t> tooLong(roaming::MSG_ROAM_MAX_LEN + 1U, 0x00U);
+    CHECK_FALSE(network.writeRoaming(NET_SUBFUNC::ROAM_SERVING_REG, tooLong.data(), (uint32_t)tooLong.size()));
+
+    REQUIRE(sendLoopbackFrame(masterSenderQueue, networkDestination, networkDestinationLen, reg,
+        { NET_FUNC::ROAMING, NET_SUBFUNC::ROAM_SERVING_REG }, 0x2468ACE1U, 9011U, 9011U, 0U));
+    network.clock(1000U);
+    CHECK(callbacks == 1U);
+    CHECK(receivedSubFunc == NET_SUBFUNC::ROAM_SERVING_REG);
+    CHECK(received == reg);
+
+    const std::vector<uint8_t> unitBytes = { 0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+    const std::vector<uint8_t> affilBytes = { 0x0FU, 0x42U, 0x40U, 0x00U, 0x0FU, 0xA1U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
+
+    REQUIRE(network.announceUnitRegistrationSUID(suid));
+    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID);
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == unitBytes);
+
+    REQUIRE(network.announceUnitDeregistrationSUID(suid));
+    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID);
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == unitBytes);
+
+    REQUIRE(network.announceGroupAffiliationSUID(suid, 4001U));
+    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID);
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == affilBytes);
+
+    REQUIRE(network.announceGroupAffiliationRemovalSUID(suid));
+    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID);
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == unitBytes);
+
+    REQUIRE(network.announceUnitRegUpdateSUID(std::vector<roaming::SUID>({ suid })));
+    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID);
+    std::vector<uint8_t> expectedRegs = { 0x00U, 0x00U, 0x00U, 0x01U };
+    expectedRegs.insert(expectedRegs.end(), unitBytes.begin(), unitBytes.end());
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == expectedRegs);
+
+    roaming::SuidAnnouncement aff;
+    aff.suid = suid;
+    aff.talkgroup = 4001U;
+    REQUIRE(network.announceAffiliationUpdateSUID(std::vector<roaming::SuidAnnouncement>({ aff })));
+    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
+    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID);
+    std::vector<uint8_t> expectedAffs = { 0x00U, 0x00U, 0x00U, 0x01U };
+    expectedAffs.insert(expectedAffs.end(), affilBytes.begin(), affilBytes.end());
+    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == expectedAffs);
+
+    // an out-of-range SUID is never written
+    CHECK_FALSE(network.announceUnitRegistrationSUID(roaming::SUID{ 0x100000U, 0x911U, 1U }));
+
+    masterReceiver.close();
+    metadataReceiver.close();
 }
