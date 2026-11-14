@@ -15,6 +15,7 @@
 using namespace network;
 using namespace network::roaming;
 
+#include <cmath>
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -432,20 +433,23 @@ bool RoamingCodec::parseConfig(const json::object& config, RoamingPeerConfig& pe
         return false;
     }
 
-    json::object roam = it->second.get<json::object>();
-    if (!roam["version"].is<uint32_t>() || roam["version"].get<uint32_t>() != ROAM_CONFIG_VERSION) {
-        return false;
-    }
+    const json::object& roam = it->second.get<json::object>();
 
-    if (!roam["netId"].is<uint32_t>() || !roam["sysId"].is<uint32_t>()) {
-        return false;
-    }
-
-    const uint32_t netId = roam["netId"].get<uint32_t>();
-    const uint32_t sysId = roam["sysId"].get<uint32_t>();
+    uint32_t version = 0U;
+    uint32_t netId = 0U;
+    uint32_t sysId = 0U;
     uint32_t rfssId = 0U;
-    if (roam["rfssId"].is<uint32_t>()) {
-        rfssId = roam["rfssId"].get<uint32_t>();
+    if (!readConfigNumber(roam, "version", true, version) || version != ROAM_CONFIG_VERSION) {
+        return false;
+    }
+
+    if (!readConfigNumber(roam, "netId", true, netId) || !readConfigNumber(roam, "sysId", true, sysId)) {
+        return false;
+    }
+
+    // an absent rfssId is a downstream FNE (0); a present but invalid one is rejected
+    if (!readConfigNumber(roam, "rfssId", false, rfssId)) {
+        return false;
     }
 
     if (netId == 0U || sysId == 0U || !SUID::validSystem(netId, sysId) || rfssId > 0xFFU) {
@@ -639,5 +643,36 @@ bool RoamingCodec::readAnnouncementEntry(bool withTalkgroup, const uint8_t* buff
     entry.suid.sysId = sysId;
     entry.suid.unitId = unitId;
     entry.talkgroup = talkgroup;
+    return true;
+}
+
+/* Reads an untrusted JSON number as an exact unsigned integer. */
+
+bool RoamingCodec::readConfigNumber(const json::object& object, const char* key, bool required, uint32_t& value)
+{
+    auto it = object.find(key);
+    if (it == object.end()) {
+        value = 0U;
+        return !required;
+    }
+
+    // a value already typed as an integer (locally built objects) is exact
+    if (!it->second.is<double>()) {
+        if (!it->second.is<uint32_t>()) {
+            return false;
+        }
+
+        value = it->second.get<uint32_t>();
+        return true;
+    }
+
+    // validate the double before any integer conversion; the conversion of an out-of-range double is undefined
+
+    const double number = it->second.get<double>();
+    if (!(number >= 0.0) || number != std::floor(number) || number > 4294967295.0) {
+        return false;
+    }
+
+    value = (uint32_t)number;
     return true;
 }

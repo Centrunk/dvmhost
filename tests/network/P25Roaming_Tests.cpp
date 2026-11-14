@@ -456,6 +456,41 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
         }
     }
 
+    SECTION("RPTC_JSON_Untrusted_Numbers") {
+        const char* bad[9U] = {
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": -1, \"sysId\": 315, \"rfssId\": 1 }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 912896.5, \"sysId\": 315, \"rfssId\": 1 }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 4295880192, \"sysId\": 315, \"rfssId\": 1 }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 1e20, \"sysId\": 315, \"rfssId\": 1 }}",
+            "{\"p25Roaming\": { \"version\": 1.5, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 1 }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 4294967297, \"rfssId\": 1 }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 1.9 }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": \"1\" }}",
+            "{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 256 }}"
+        };
+        for (const char* text : bad) {
+            INFO(text);
+            json::value r;
+            REQUIRE(json::parse(r, std::string(text)).empty());
+            RoamingPeerConfig out;
+            out.netId = 7U;
+            out.sysId = 8U;
+            out.rfssId = 9U;
+            CHECK_FALSE(RoamingCodec::parseConfig(r.get<json::object>(), out));
+            CHECK(out.netId == 7U);
+            CHECK(out.sysId == 8U);
+            CHECK(out.rfssId == 9U);
+        }
+
+        // an absent rfssId is a downstream FNE (0)
+        json::value ok;
+        REQUIRE(json::parse(ok, std::string("{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 315 }}")).empty());
+        RoamingPeerConfig peer;
+        peer.rfssId = 9U;
+        REQUIRE(RoamingCodec::parseConfig(ok.get<json::object>(), peer));
+        CHECK(peer.rfssId == 0U);
+    }
+
     SECTION("RPTC_ACK_Payload") {
         uint8_t payload[CONFIG_ACK_ROAMING_LEN];
         REQUIRE(RoamingCodec::encodeConfigAck(payload, sizeof(payload), true, 0xDEE00U, 0x13BU) == 6U);
