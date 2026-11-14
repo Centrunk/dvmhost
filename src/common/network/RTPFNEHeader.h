@@ -83,7 +83,9 @@ namespace network
             ANNOUNCE = 0x91U,                       //!< Network Announce Function
 
             REPL = 0x92U,                           //!< FNE Replication Function
-            NET_TREE = 0x93U                        //!< FNE Network Tree Function
+            NET_TREE = 0x93U,                       //!< FNE Network Tree Function
+
+            ROAMING = 0x94U                         //!< P25 Roaming Mobility Function
         };
     };
 
@@ -123,8 +125,14 @@ namespace network
             ANNC_SUBFUNC_UNIT_REG = 0x01U,          //!< Announce Unit Registration
             ANNC_SUBFUNC_UNIT_DEREG = 0x02U,        //!< Announce Unit Deregistration
             ANNC_SUBFUNC_GRP_UNAFFIL = 0x03U,       //!< Announce Group Affiliation Removal
+            ANNC_SUBFUNC_UNIT_REG_SUID = 0x04U,     //!< Announce Foreign Unit Registration (SUID)
+            ANNC_SUBFUNC_UNIT_DEREG_SUID = 0x05U,   //!< Announce Foreign Unit Deregistration (SUID)
+            ANNC_SUBFUNC_GRP_AFFIL_SUID = 0x06U,    //!< Announce Foreign Group Affiliation (SUID)
+            ANNC_SUBFUNC_GRP_UNAFFIL_SUID = 0x07U,  //!< Announce Foreign Group Affiliation Removal (SUID)
             ANNC_SUBFUNC_AFFILS = 0x90U,            //!< Update All Affiliations
             ANNC_SUBFUNC_UNIT_REGS = 0x91U,         //!< Update All Unit Registrations
+            ANNC_SUBFUNC_UNIT_REGS_SUID = 0x92U,    //!< Update All Foreign Unit Registrations (SUID)
+            ANNC_SUBFUNC_AFFILS_SUID = 0x93U,       //!< Update All Foreign Affiliations (SUID)
             ANNC_SUBFUNC_SITE_VC = 0x9AU,           //!< Announce Site VCs
 
             REPL_TALKGROUP_LIST = 0x00U,            //!< FNE Replication Talkgroup Transfer
@@ -137,7 +145,17 @@ namespace network
             REPL_PATCH_STATUS = 0xA4U,              //!< FNE Replication Patch Status Transfer
 
             NET_TREE_LIST = 0x00U,                  //!< FNE Network Tree List
-            NET_TREE_DISC = 0x01U                   //!< FNE Network Tree Disconnect
+            NET_TREE_DISC = 0x01U,                  //!< FNE Network Tree Disconnect
+
+            ROAM_SERVING_REG = 0x00U,               //!< P25 Roaming Serving Registration (serving to home)
+            ROAM_SERVING_REG_RSP = 0x01U,           //!< P25 Roaming Serving Registration Response (home to serving)
+            ROAM_SERVING_DEREG = 0x02U,             //!< P25 Roaming Serving Deregistration (serving to home)
+            ROAM_SERVING_DEREG_RSP = 0x03U,         //!< P25 Roaming Serving Deregistration Response (home to serving)
+            ROAM_HOME_DEREG = 0x04U,                //!< P25 Roaming Home Deregistration (home to serving)
+            ROAM_HOME_DEREG_RSP = 0x05U,            //!< P25 Roaming Home Deregistration Response (serving to home)
+            ROAM_QUERY = 0x06U,                     //!< P25 Roaming Query (home to serving)
+            ROAM_QUERY_RSP = 0x07U,                 //!< P25 Roaming Query Response (serving to home)
+            ROAM_GEN_RSP = 0x7FU                    //!< P25 Roaming General Response (unsupported request)
         };
     };
 
