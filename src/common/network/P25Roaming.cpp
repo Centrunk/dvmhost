@@ -10,6 +10,7 @@
 #include "Defines.h"
 #include "network/P25Roaming.h"
 #include "network/RTPFNEHeader.h"
+#include "network/RawFrameQueue.h"
 
 using namespace network;
 using namespace network::roaming;
@@ -271,6 +272,276 @@ RoamDecode::E RoamingCodec::decodeHeader(const uint8_t* data, uint32_t length, u
     return RoamDecode::OK;
 }
 
+/* Gets the exact length of a single SUID announcement. */
+
+uint32_t RoamingCodec::announcementLength(uint8_t subFunc)
+{
+    switch (subFunc) {
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID:
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID:
+    case NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID:
+        return MSG_ANNC_UNIT_REG_SUID_LEN;
+    case NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID:
+        return MSG_ANNC_GRP_AFFIL_SUID_LEN;
+    default:
+        return 0U;
+    }
+}
+
+/* Gets the entry size of a bulk SUID announcement. */
+
+uint32_t RoamingCodec::bulkEntryLength(uint8_t subFunc)
+{
+    switch (subFunc) {
+    case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID:
+        return MSG_ANNC_UNIT_REG_SUID_LEN;
+    case NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID:
+        return MSG_ANNC_GRP_AFFIL_SUID_LEN;
+    default:
+        return 0U;
+    }
+}
+
+/* Encodes a single SUID announcement. */
+
+uint32_t RoamingCodec::encodeSuidAnnouncement(uint8_t subFunc, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t bufferLen)
+{
+    const uint32_t length = announcementLength(subFunc);
+    if (buffer == nullptr || length == 0U || bufferLen < length || !entry.suid.valid()) {
+        return 0U;
+    }
+
+    const bool withTalkgroup = (length == MSG_ANNC_GRP_AFFIL_SUID_LEN);
+    if (withTalkgroup && entry.talkgroup > ROAM_MAX_UNIT_ID) {
+        return 0U;
+    }
+
+    writeAnnouncementEntry(withTalkgroup, entry, buffer, 0U);
+    return length;
+}
+
+/* Decodes a single SUID announcement. */
+
+bool RoamingCodec::decodeSuidAnnouncement(uint8_t subFunc, const uint8_t* data, uint32_t length, SuidAnnouncement& entry)
+{
+    const uint32_t expected = announcementLength(subFunc);
+    if (data == nullptr || expected == 0U || length != expected) {
+        return false;
+    }
+
+    SuidAnnouncement out;
+    if (!readAnnouncementEntry(expected == MSG_ANNC_GRP_AFFIL_SUID_LEN, data, 0U, out)) {
+        return false;
+    }
+
+    entry = out;
+    return true;
+}
+
+/* Encodes a bulk SUID announcement. */
+
+std::vector<uint8_t> RoamingCodec::encodeSuidBulk(uint8_t subFunc, const std::vector<SuidAnnouncement>& entries)
+{
+    const uint32_t entryLen = bulkEntryLength(subFunc);
+    if (entryLen == 0U) {
+        return std::vector<uint8_t>();
+    }
+
+    // the payload must fit one network frame
+    if (entries.size() > (size_t)((DATA_PACKET_LENGTH - MSG_ANNC_SUID_BULK_HDR_LEN) / entryLen)) {
+        return std::vector<uint8_t>();
+    }
+
+    const bool withTalkgroup = (entryLen == MSG_ANNC_GRP_AFFIL_SUID_LEN);
+    for (const SuidAnnouncement& entry : entries) {
+        if (!entry.suid.valid() || (withTalkgroup && entry.talkgroup > ROAM_MAX_UNIT_ID)) {
+            return std::vector<uint8_t>();
+        }
+    }
+
+    const uint32_t count = (uint32_t)entries.size();
+    std::vector<uint8_t> payload(MSG_ANNC_SUID_BULK_HDR_LEN + (count * entryLen), 0x00U);
+    SET_UINT32(count, payload.data(), 0U);
+
+    uint32_t offs = MSG_ANNC_SUID_BULK_HDR_LEN;
+    for (const SuidAnnouncement& entry : entries) {
+        writeAnnouncementEntry(withTalkgroup, entry, payload.data(), offs);
+        offs += entryLen;
+    }
+
+    return payload;
+}
+
+/* Decodes a bulk SUID announcement. */
+
+bool RoamingCodec::decodeSuidBulk(uint8_t subFunc, const uint8_t* data, uint32_t length, std::vector<SuidAnnouncement>& entries)
+{
+    const uint32_t entryLen = bulkEntryLength(subFunc);
+    if (data == nullptr || entryLen == 0U || length < MSG_ANNC_SUID_BULK_HDR_LEN) {
+        return false;
+    }
+
+    const uint32_t count = GET_UINT32(data, 0U);
+    const uint32_t available = (length - MSG_ANNC_SUID_BULK_HDR_LEN) / entryLen;
+
+    // count is compared first, so the multiplication below cannot overflow
+    if (count != available || length != MSG_ANNC_SUID_BULK_HDR_LEN + (count * entryLen)) {
+        return false;
+    }
+
+    const bool withTalkgroup = (entryLen == MSG_ANNC_GRP_AFFIL_SUID_LEN);
+    std::vector<SuidAnnouncement> out;
+    out.reserve(count);
+
+    uint32_t offs = MSG_ANNC_SUID_BULK_HDR_LEN;
+    for (uint32_t i = 0U; i < count; i++) {
+        SuidAnnouncement entry;
+        if (!readAnnouncementEntry(withTalkgroup, data, offs, entry)) {
+            return false;
+        }
+
+        out.push_back(entry);
+        offs += entryLen;
+    }
+
+    entries.swap(out);
+    return true;
+}
+
+/* Builds the RPTC p25Roaming JSON object. */
+
+json::object RoamingCodec::buildConfig(uint32_t netId, uint32_t sysId, uint8_t rfssId)
+{
+    uint32_t version = ROAM_CONFIG_VERSION;
+    uint32_t rfss = rfssId;
+
+    json::object roam = json::object();
+    roam["version"].set<uint32_t>(version);
+    roam["netId"].set<uint32_t>(netId);
+    roam["sysId"].set<uint32_t>(sysId);
+    roam["rfssId"].set<uint32_t>(rfss);
+    return roam;
+}
+
+/* Parses the RPTC p25Roaming object. */
+
+bool RoamingCodec::parseConfig(const json::object& config, RoamingPeerConfig& peer)
+{
+    auto it = config.find("p25Roaming");
+    if (it == config.end() || !it->second.is<json::object>()) {
+        return false;
+    }
+
+    json::object roam = it->second.get<json::object>();
+    if (!roam["version"].is<uint32_t>() || roam["version"].get<uint32_t>() != ROAM_CONFIG_VERSION) {
+        return false;
+    }
+
+    if (!roam["netId"].is<uint32_t>() || !roam["sysId"].is<uint32_t>()) {
+        return false;
+    }
+
+    const uint32_t netId = roam["netId"].get<uint32_t>();
+    const uint32_t sysId = roam["sysId"].get<uint32_t>();
+    uint32_t rfssId = 0U;
+    if (roam["rfssId"].is<uint32_t>()) {
+        rfssId = roam["rfssId"].get<uint32_t>();
+    }
+
+    if (netId == 0U || sysId == 0U || !SUID::validSystem(netId, sysId) || rfssId > 0xFFU) {
+        return false;
+    }
+
+    peer.netId = netId;
+    peer.sysId = sysId;
+    peer.rfssId = (uint8_t)rfssId;
+    return true;
+}
+
+/* Encodes the RPTC ACK payload. */
+
+uint32_t RoamingCodec::encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bool capable, uint32_t netId, uint32_t sysId)
+{
+    if (payload == nullptr || payloadLen < 1U) {
+        return 0U;
+    }
+
+    if (!capable) {
+        payload[0U] = CONFIG_ACK_ALT_DIAG_PORT;
+        return 1U;
+    }
+
+    if (payloadLen < CONFIG_ACK_ROAMING_LEN || !SUID::validSystem(netId, sysId)) {
+        return 0U;
+    }
+
+    payload[0U] = CONFIG_ACK_ALT_DIAG_PORT | CONFIG_ACK_ROAMING_CAPABLE;            // Flags
+    SET_UINT24(netId, payload, 1U);                                                 // Master WACN ID
+    SET_UINT16(sysId, payload, 4U);                                                 // Master System ID
+    return CONFIG_ACK_ROAMING_LEN;
+}
+
+/* Decodes the RPTC ACK payload. */
+
+bool RoamingCodec::decodeConfigAck(const uint8_t* payload, uint32_t length, bool& capable, uint32_t& netId, uint32_t& sysId)
+{
+    if (payload == nullptr || length < 1U) {
+        return false;
+    }
+
+    if ((payload[0U] & CONFIG_ACK_ROAMING_CAPABLE) == 0x00U) {
+        capable = false;
+        return true;
+    }
+
+    if (length < CONFIG_ACK_ROAMING_LEN) {
+        return false;
+    }
+
+    const uint32_t masterNetId = GET_UINT24(payload, 1U);
+    const uint32_t masterSysId = GET_UINT16(payload, 4U);
+    if (!SUID::validSystem(masterNetId, masterSysId)) {
+        return false;
+    }
+
+    capable = true;
+    netId = masterNetId;
+    sysId = masterSysId;
+    return true;
+}
+
+/* Writes the source WACN ID and System ID into a GRANT_REQ message. */
+
+bool RoamingCodec::encodeGrantSource(uint8_t* buffer, uint32_t netId, uint32_t sysId)
+{
+    if (buffer == nullptr || !SUID::validSystem(netId, sysId)) {
+        return false;
+    }
+
+    SET_UINT24(netId, buffer, 4U);                                                  // Source WACN ID
+    SET_UINT16(sysId, buffer, 7U);                                                  // Source System ID
+    return true;
+}
+
+/* Reads the source WACN ID and System ID from a GRANT_REQ message. */
+
+bool RoamingCodec::decodeGrantSource(const uint8_t* buffer, uint32_t length, uint32_t& netId, uint32_t& sysId)
+{
+    if (buffer == nullptr || length < ROAM_GRANT_REQ_LEN) {
+        return false;
+    }
+
+    const uint32_t srcNetId = GET_UINT24(buffer, 4U);
+    const uint32_t srcSysId = GET_UINT16(buffer, 7U);
+    if (!SUID::validSystem(srcNetId, srcSysId)) {
+        return false;
+    }
+
+    netId = srcNetId;
+    sysId = srcSysId;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 //  Private Class Members
 // ---------------------------------------------------------------------------
@@ -323,5 +594,50 @@ bool RoamingCodec::readRfss(const uint8_t* buffer, uint32_t offset, RfssIdentity
     rfss.netId = netId;
     rfss.sysId = sysId;
     rfss.rfssId = buffer[offset + 5U];
+    return true;
+}
+
+/* Writes one SUID announcement entry. */
+
+void RoamingCodec::writeAnnouncementEntry(bool withTalkgroup, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t offset)
+{
+    SET_UINT24(entry.suid.unitId, buffer, offset);                                  // Unit ID
+    if (withTalkgroup) {
+        SET_UINT24(entry.talkgroup, buffer, offset + 3U);                           // Talkgroup
+        SET_UINT24(entry.suid.netId, buffer, offset + 6U);                          // WACN ID
+        SET_UINT16(entry.suid.sysId, buffer, offset + 9U);                          // System ID
+    }
+    else {
+        SET_UINT24(entry.suid.netId, buffer, offset + 3U);                          // WACN ID
+        SET_UINT16(entry.suid.sysId, buffer, offset + 6U);                          // System ID
+    }
+}
+
+/* Reads and range-checks one SUID announcement entry. */
+
+bool RoamingCodec::readAnnouncementEntry(bool withTalkgroup, const uint8_t* buffer, uint32_t offset, SuidAnnouncement& entry)
+{
+    const uint32_t unitId = GET_UINT24(buffer, offset);
+    uint32_t talkgroup = 0U;
+    uint32_t netId = 0U;
+    uint32_t sysId = 0U;
+    if (withTalkgroup) {
+        talkgroup = GET_UINT24(buffer, offset + 3U);
+        netId = GET_UINT24(buffer, offset + 6U);
+        sysId = GET_UINT16(buffer, offset + 9U);
+    }
+    else {
+        netId = GET_UINT24(buffer, offset + 3U);
+        sysId = GET_UINT16(buffer, offset + 6U);
+    }
+
+    if (!SUID::validSystem(netId, sysId)) {
+        return false;
+    }
+
+    entry.suid.netId = netId;
+    entry.suid.sysId = sysId;
+    entry.suid.unitId = unitId;
+    entry.talkgroup = talkgroup;
     return true;
 }

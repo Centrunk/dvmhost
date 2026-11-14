@@ -17,8 +17,10 @@
 #define __P25_ROAMING_H__
 
 #include "common/Defines.h"
+#include "common/json/json.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace network
 {
@@ -300,6 +302,34 @@ namespace network
         };
 
         // ---------------------------------------------------------------------------
+        //  Structure Declaration
+        // ---------------------------------------------------------------------------
+
+        /**
+         * @brief One SUID announcement entry (spec 3.4); talkgroup is used only by GRP_AFFIL_SUID and AFFILS_SUID.
+         * @ingroup network_core
+         */
+        struct DVM_COMMON_API SuidAnnouncement {
+            SUID suid;                                  //!< Foreign SU.
+            uint32_t talkgroup = 0U;                    //!< Local talkgroup ID (bare until sub-project 3c).
+        };
+
+        // ---------------------------------------------------------------------------
+        //  Structure Declaration
+        // ---------------------------------------------------------------------------
+
+        /**
+         * @brief P25 identity a peer offered in its RPTC p25Roaming object (spec 3.1).
+         * @ingroup network_core
+         */
+        struct DVM_COMMON_API RoamingPeerConfig {
+            uint32_t netId = 0U;                        //!< Peer WACN ID.
+            uint32_t sysId = 0U;                        //!< Peer System ID.
+            uint8_t rfssId = 0U;                        //!< Peer RFSS ID (0 for a downstream FNE).
+        };
+
+
+        // ---------------------------------------------------------------------------
         //  Class Declaration
         // ---------------------------------------------------------------------------
 
@@ -350,7 +380,123 @@ namespace network
              */
             static RoamDecode::E decodeHeader(const uint8_t* data, uint32_t length, uint8_t& version, uint8_t& hopCount, uint32_t& txnId);
 
+            /**
+             * @brief Gets the exact length of a single SUID announcement.
+             * @param subFunc Announcement sub-function.
+             * @returns uint32_t 8 or 11, or 0 if the sub-function is not a single SUID form.
+             */
+            static uint32_t announcementLength(uint8_t subFunc);
+            /**
+             * @brief Gets the entry size of a bulk SUID announcement.
+             * @param subFunc Announcement sub-function.
+             * @returns uint32_t 8 (UNIT_REGS_SUID) or 11 (AFFILS_SUID), or 0 otherwise.
+             */
+            static uint32_t bulkEntryLength(uint8_t subFunc);
+            /**
+             * @brief Encodes a single SUID announcement.
+             * @param subFunc Announcement sub-function.
+             * @param entry Announcement entry.
+             * @param[out] buffer Output buffer.
+             * @param bufferLen Output buffer length in bytes.
+             * @returns uint32_t Bytes written, or 0 on an unknown form, out-of-range field or short buffer.
+             */
+            static uint32_t encodeSuidAnnouncement(uint8_t subFunc, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t bufferLen);
+            /**
+             * @brief Decodes a single SUID announcement.
+             * @param subFunc Announcement sub-function.
+             * @param[in] data Announcement bytes.
+             * @param length Available length in bytes; must equal announcementLength(subFunc).
+             * @param[out] entry Decoded entry; written only on success.
+             * @returns bool True if decoded; otherwise, false.
+             */
+            static bool decodeSuidAnnouncement(uint8_t subFunc, const uint8_t* data, uint32_t length, SuidAnnouncement& entry);
+            /**
+             * @brief Encodes a bulk SUID announcement (count, then entries).
+             * @param subFunc ANNC_SUBFUNC_UNIT_REGS_SUID or ANNC_SUBFUNC_AFFILS_SUID.
+             * @param entries Entries to encode.
+             * @returns std::vector<uint8_t> Encoded payload, or empty on an unknown form, out-of-range entry or oversize payload.
+             */
+            static std::vector<uint8_t> encodeSuidBulk(uint8_t subFunc, const std::vector<SuidAnnouncement>& entries);
+            /**
+             * @brief Decodes a bulk SUID announcement; the count is validated against the length before any entry is read.
+             * @param subFunc ANNC_SUBFUNC_UNIT_REGS_SUID or ANNC_SUBFUNC_AFFILS_SUID.
+             * @param[in] data Announcement bytes.
+             * @param length Available length in bytes.
+             * @param[out] entries Decoded entries; written only on success.
+             * @returns bool True if decoded; otherwise, false.
+             */
+            static bool decodeSuidBulk(uint8_t subFunc, const uint8_t* data, uint32_t length, std::vector<SuidAnnouncement>& entries);
+            /**
+             * @brief Builds the RPTC p25Roaming JSON object.
+             * @param netId WACN ID.
+             * @param sysId System ID.
+             * @param rfssId RFSS ID (0 for a downstream FNE).
+             * @returns json::object p25Roaming object.
+             */
+            static json::object buildConfig(uint32_t netId, uint32_t sysId, uint8_t rfssId);
+            /**
+             * @brief Parses the RPTC p25Roaming object; a missing object or version other than 1 means not capable.
+             * @param config RPTC configuration JSON.
+             * @param[out] peer Offered identity; written only on success.
+             * @returns bool True if a valid version 1 object with non-zero, in-range identity was found; otherwise, false.
+             */
+            static bool parseConfig(const json::object& config, RoamingPeerConfig& peer);
+            /**
+             * @brief Encodes the RPTC ACK payload.
+             * @param[out] payload Output buffer (payload byte 0 is packet byte 6).
+             * @param payloadLen Output buffer length in bytes.
+             * @param capable Flag indicating the master is P25 roaming capable.
+             * @param netId Master WACN ID.
+             * @param sysId Master System ID.
+             * @returns uint32_t 1 (not capable) or 6 (capable), or 0 on a short buffer or out-of-range identity.
+             */
+            static uint32_t encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bool capable, uint32_t netId, uint32_t sysId);
+            /**
+             * @brief Decodes the RPTC ACK payload.
+             * @param[in] payload Payload bytes (packet byte 6 onward).
+             * @param length Available payload length in bytes.
+             * @param[out] capable Flag indicating the master is P25 roaming capable.
+             * @param[out] netId Master WACN ID (when capable).
+             * @param[out] sysId Master System ID (when capable).
+             * @returns bool True if the payload is well formed (capable or not); false if empty, truncated or out of range.
+             */
+            static bool decodeConfigAck(const uint8_t* payload, uint32_t length, bool& capable, uint32_t& netId, uint32_t& sysId);
+            /**
+             * @brief Writes the source WACN ID and System ID into a GRANT_REQ message (bytes 4-6 and 7-8).
+             * @param[in,out] buffer GRANT_REQ buffer of at least ROAM_GRANT_REQ_LEN bytes.
+             * @param netId Source WACN ID (0 = own system).
+             * @param sysId Source System ID (0 = own system).
+             * @returns bool True if written; false if out of range (buffer unchanged).
+             */
+            static bool encodeGrantSource(uint8_t* buffer, uint32_t netId, uint32_t sysId);
+            /**
+             * @brief Reads the source WACN ID and System ID from a GRANT_REQ message.
+             * @param[in] buffer GRANT_REQ bytes.
+             * @param length Available length in bytes; at least ROAM_GRANT_REQ_LEN.
+             * @param[out] netId Source WACN ID (0 = own system).
+             * @param[out] sysId Source System ID (0 = own system).
+             * @returns bool True if read and in range; otherwise, false.
+             */
+            static bool decodeGrantSource(const uint8_t* buffer, uint32_t length, uint32_t& netId, uint32_t& sysId);
+
         private:
+            /**
+             * @brief Writes one SUID announcement entry.
+             * @param withTalkgroup Flag indicating the GRP_AFFIL_SUID layout.
+             * @param entry Entry to write.
+             * @param[out] buffer Output buffer.
+             * @param offset Byte offset of the entry.
+             */
+            static void writeAnnouncementEntry(bool withTalkgroup, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t offset);
+            /**
+             * @brief Reads and range-checks one SUID announcement entry.
+             * @param withTalkgroup Flag indicating the GRP_AFFIL_SUID layout.
+             * @param[in] buffer Input buffer (length already validated).
+             * @param offset Byte offset of the entry.
+             * @param[out] entry Decoded entry.
+             * @returns bool True if the WACN ID and System ID are in range; otherwise, false.
+             */
+            static bool readAnnouncementEntry(bool withTalkgroup, const uint8_t* buffer, uint32_t offset, SuidAnnouncement& entry);
             /**
              * @brief Writes a SUID field group.
              * @param suid SUID to write.
