@@ -47,7 +47,16 @@ RoamingConfigLoad::E RoamingConfig::load(yaml::Node& systemConf)
 
     uint32_t netId = 0U;
     uint32_t sysId = 0U;
-    if (!parseHex(netText, ROAM_MAX_WACN, netId) || !parseHex(sysText, ROAM_MAX_SYSID, sysId)) {
+    if (!parseHex(netText, ROAM_MAX_WACN, netId)) {
+        return RoamingConfigLoad::INVALID;
+    }
+
+    // the protected WACN range fails startup whatever p25SysId holds
+    if (netId >= ROAM_WACN_PROTECTED_START && netId <= ROAM_WACN_PROTECTED_END) {
+        return RoamingConfigLoad::PROTECTED_WACN;
+    }
+
+    if (!parseHex(sysText, ROAM_MAX_SYSID, sysId)) {
         return RoamingConfigLoad::INVALID;
     }
 
@@ -58,10 +67,6 @@ RoamingConfigLoad::E RoamingConfig::load(yaml::Node& systemConf)
 
     if (netId == 0U || sysId == 0U) {
         return RoamingConfigLoad::INVALID;
-    }
-
-    if (netId >= ROAM_WACN_PROTECTED_START && netId <= ROAM_WACN_PROTECTED_END) {
-        return RoamingConfigLoad::PROTECTED_WACN;
     }
 
     if (m_expires <= ROAM_MIN_EXPIRES) {

@@ -17,6 +17,42 @@ using namespace network;
 #include <cstring>
 
 // ---------------------------------------------------------------------------
+//  Global Functions
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    /* Resolves the connection class a peer's RPTC configuration selects. */
+
+    PEER_CONN_CLASS resolveOfferedPeerClass(const json::object& peerConfig)
+    {
+        // older peers report their class through the sysView and externalPeer booleans (externalPeer wins),
+        //  newer peers send peerClass, which overrides both
+        PEER_CONN_CLASS peerClass = PEER_CONN_CLASS_STANDARD;
+
+        const json::object::const_iterator sysView = peerConfig.find("sysView");
+        if (sysView != peerConfig.end() && sysView->second.is<bool>() && sysView->second.get<bool>()) {
+            peerClass = PEER_CONN_CLASS_SYSVIEW;
+        }
+
+        const json::object::const_iterator externalPeer = peerConfig.find("externalPeer");
+        if (externalPeer != peerConfig.end() && externalPeer->second.is<bool>() && externalPeer->second.get<bool>()) {
+            peerClass = PEER_CONN_CLASS_NEIGHBOR;
+        }
+
+        const json::object::const_iterator explicitClass = peerConfig.find("peerClass");
+        if (explicitClass != peerConfig.end() && explicitClass->second.is<uint32_t>()) {
+            uint32_t value = explicitClass->second.get<uint32_t>();
+            if (value >= PEER_CONN_CLASS_INVALID)
+                value = PEER_CONN_CLASS_STANDARD;
+            peerClass = (PEER_CONN_CLASS)value;
+        }
+
+        return peerClass;
+    }
+} // namespace
+
+// ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
 
@@ -59,8 +95,8 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                     else {
                         // validate the P25 identity before any connection state changes (spec 2.2, 3.1)
                         json::object offered = v.get<json::object>();
-                        const bool neighborOffer = (offered["externalPeer"].is<bool>() && offered["externalPeer"].get<bool>()) ||
-                            (offered["peerClass"].is<uint32_t>() && offered["peerClass"].get<uint32_t>() == (uint32_t)PEER_CONN_CLASS_NEIGHBOR);
+                        // the neighbor decision uses the same precedence as the peer class assigned below
+                        const bool neighborOffer = resolveOfferedPeerClass(offered) == PEER_CONN_CLASS_NEIGHBOR;
                         roaming::RoamingPeerConfig peerRoaming;
                         const RoamingLogin::E roamingLogin = network->m_roamingConfig.evaluateLogin(offered, neighborOffer, peerRoaming);
                         if (roamingLogin == RoamingLogin::REJECT_MISMATCH) {
@@ -132,30 +168,12 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                             if (peerConfig["sysView"].is<bool>()) {
                                 bool sysView = peerConfig["sysView"].get<bool>();
                                 if (sysView)
-                                    connection->peerClass(PEER_CONN_CLASS_SYSVIEW);
-                                if (sysView)
                                     LogInfoEx(LOG_MASTER, "PEER %u >> SysView Peer", peerId);
                             }
-
-                            // is the peer reporting it is a downstream FNE neighbor peer?
-                            if (peerConfig["externalPeer"].is<bool>()) {
-                                bool externalPeer = peerConfig["externalPeer"].get<bool>();
-                                if (externalPeer)
-                                    connection->peerClass(PEER_CONN_CLASS_NEIGHBOR);
-                            }
                         }
 
-                        // determine the peer class
-                        if (peerConfig["peerClass"].is<uint32_t>()) {
-                            uint32_t peerClass = peerConfig["peerClass"].get<uint32_t>();
-                            if (peerClass >= PEER_CONN_CLASS_INVALID)
-                                peerClass = PEER_CONN_CLASS_STANDARD;
-                            connection->peerClass((PEER_CONN_CLASS)peerClass);
-                        } else {
-                            if (connection->peerClass() == PEER_CONN_CLASS_UNKNOWN) {
-                                connection->peerClass(PEER_CONN_CLASS_STANDARD);
-                            }
-                        }
+                        // determine the peer class (downstream FNE neighbor via externalPeer, or peerClass)
+                        connection->peerClass(resolveOfferedPeerClass(peerConfig));
 
                         // is the peer reporting it is a conventional peer?
                         if (peerConfig["conventionalPeer"].is<bool>()) {

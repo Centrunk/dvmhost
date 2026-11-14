@@ -159,6 +159,12 @@ TEST_CASE("FNE P25 roaming configuration loads and validates the system identity
     CHECK(loadFrom("p25NetId: BEE10\np25SysId: 13B\n", config) == RoamingConfigLoad::PROTECTED_WACN);
     CHECK(loadFrom("p25NetId: BEEFF\np25SysId: 13B\n", config) == RoamingConfigLoad::PROTECTED_WACN);
     CHECK_FALSE(config.enabled());
+    // the protected range fails startup whatever p25SysId holds
+    CHECK(loadFrom("p25NetId: BEE00\n", config) == RoamingConfigLoad::PROTECTED_WACN);
+    CHECK(loadFrom("p25NetId: BEE00\np25SysId: 0\n", config) == RoamingConfigLoad::PROTECTED_WACN);
+    CHECK(loadFrom("p25NetId: BEEFF\np25SysId: XYZ\n", config) == RoamingConfigLoad::PROTECTED_WACN);
+    CHECK(loadFrom("p25NetId: BEE80\np25SysId: 1000\np25RoamingExpires: 100\n", config) == RoamingConfigLoad::PROTECTED_WACN);
+    CHECK_FALSE(config.enabled());
     CHECK(loadFrom("p25NetId: BEDFF\np25SysId: 13B\n", config) == RoamingConfigLoad::OK);
     CHECK(loadFrom("p25NetId: BEF00\np25SysId: 13B\n", config) == RoamingConfigLoad::OK);
 
@@ -265,4 +271,50 @@ TEST_CASE("FNE without a P25 identity accepts any host identity as not roaming c
     REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1001U));
     CHECK(FNETestHooks::peerState(harness.traffic, 1001U) == network::NET_STAT_RUNNING);
     CHECK_FALSE(host.p25RoamingCapable());
+}
+
+TEST_CASE("FNE decides the neighbor exemption with the same precedence as the peer class", "[fne][roaming][login]")
+{
+    const std::string foreign = "\"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 2321, \"rfssId\": 1}";
+
+    // peerClass overrides externalPeer: a standard host claiming externalPeer is still checked and rejected
+    {
+        RoamingFNEHarness harness;
+        harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+        FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
+            rptcPacket("{\"identity\": \"SITE911\", \"externalPeer\": true, \"peerClass\": 0, " + foreign + "}"));
+        CHECK_FALSE(FNETestHooks::hasPeer(harness.traffic, 1001U));
+    }
+    {
+        RoamingFNEHarness harness;
+        harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+        FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
+            rptcPacket("{\"identity\": \"SITE911\", \"externalPeer\": true, \"peerClass\": 2, " + foreign + "}"));
+        CHECK_FALSE(FNETestHooks::hasPeer(harness.traffic, 1001U));
+    }
+
+    // a downstream FNE (externalPeer, or peerClass neighbor) may carry any identity
+    {
+        RoamingFNEHarness harness;
+        harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+        network::FNEPeerConnection& neighbor = FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
+            rptcPacket("{\"identity\": \"FNE911\", \"externalPeer\": true, " + foreign + "}"));
+        REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1001U));
+        CHECK(neighbor.peerClass() == network::PEER_CONN_CLASS_NEIGHBOR);
+        CHECK(neighbor.p25RoamingCapable());
+        CHECK(neighbor.p25SysId() == 0x911U);
+    }
+    {
+        RoamingFNEHarness harness;
+        harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+        network::FNEPeerConnection& neighbor = FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
+            rptcPacket("{\"identity\": \"FNE911\", \"peerClass\": 1, " + foreign + "}"));
+        REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1001U));
+        CHECK(neighbor.peerClass() == network::PEER_CONN_CLASS_NEIGHBOR);
+        CHECK(neighbor.p25RoamingCapable());
+    }
 }
