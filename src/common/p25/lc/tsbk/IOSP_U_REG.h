@@ -65,7 +65,7 @@ namespace p25
             public:
                 /**
                  * @brief SUID System ID echoed in a Unit Registration Response (12-bit).
-                 *  A value of 0 encodes the site System ID (Home SU).
+                 *  SUID_SITE_DEFAULT (the default) encodes the site System ID (Home SU).
                  */
                 DECLARE_PROPERTY(uint32_t, suidSysId, SUIDSysId);
             };

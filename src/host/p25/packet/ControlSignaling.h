@@ -471,11 +471,11 @@ namespace p25
              * @param extended Flag indicating this is an extended acknowledgement.
              * @param noNetwork Flag indicating the acknowledgement must not be forwarded to the network.
              * @param refreshRegistration Flag indicating the acknowledgement confirms a valid WUID transaction.
-             * @param suidNetId Target SU SUID WACN ID for an extended acknowledgement; 0 uses the site WACN ID.
-             * @param suidSysId Target SU SUID System ID for an extended acknowledgement; 0 uses the site System ID.
+             * @param suidNetId Target SU SUID WACN ID for an extended acknowledgement; SUID_SITE_DEFAULT uses the site WACN ID.
+             * @param suidSysId Target SU SUID System ID for an extended acknowledgement; SUID_SITE_DEFAULT uses the site System ID.
              */
             void writeRF_TSDU_ACK_FNE(uint32_t dstId, uint32_t service, bool extended, bool noNetwork,
-                bool refreshRegistration = true, uint32_t suidNetId = 0U, uint32_t suidSysId = 0U);
+                bool refreshRegistration = true, uint32_t suidNetId = defines::SUID_SITE_DEFAULT, uint32_t suidSysId = defines::SUID_SITE_DEFAULT);
 
             /**
              * @brief Emits a group-affiliation query without changing transaction state.

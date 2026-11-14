@@ -24,7 +24,7 @@ using namespace p25::lc::tsbk;
 /* Initializes a new instance of the IOSP_U_REG class. */
 
 IOSP_U_REG::IOSP_U_REG() : TSBK(),
-    m_suidSysId(0U)
+    m_suidSysId(SUID_SITE_DEFAULT)
 {
     m_lco = TSBKO::IOSP_U_REG;
 }
@@ -61,7 +61,7 @@ void IOSP_U_REG::encode(uint8_t* data, bool rawTSBK, bool noTrellis)
 
     tsbkValue = (tsbkValue << 2) + (m_response & 0x3U);                             // Unit Registration Response
     // the System ID is that of the SU's SUID (TIA-102.AABC-D 6.2.21.1); a Home SU uses the site System ID
-    const uint32_t sysId = (m_suidSysId != 0U) ? m_suidSysId : s_siteData.sysId();
+    const uint32_t sysId = (m_suidSysId != SUID_SITE_DEFAULT) ? m_suidSysId : s_siteData.sysId();
     tsbkValue = (tsbkValue << 12) + (sysId & 0xFFFU);                               // System ID
     tsbkValue = (tsbkValue << 24) + m_dstId;                                        // Source ID
     tsbkValue = (tsbkValue << 24) + m_srcId;                                        // Source Radio Address

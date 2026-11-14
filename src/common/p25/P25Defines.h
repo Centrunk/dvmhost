@@ -243,6 +243,9 @@ namespace p25
         const uint32_t  WACN_STD_DEFAULT = 0xBB800U;
         /** @brief Default System ID */
         const uint32_t  SID_STD_DEFAULT = 0x001U;
+        /** @brief Internal marker (never transmitted) for an SUID WACN ID or System ID that encodes the site's own value;
+         *  lies outside every field's range, so a received WACN ID or System ID of 0 is echoed as 0. */
+        const uint32_t  SUID_SITE_DEFAULT = 0xFFFFFFFFU;
 
         /** @brief FNE Working Unit ID */
         const uint32_t  WUID_FNE = 0xFFFFFCU;

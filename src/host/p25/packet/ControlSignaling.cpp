@@ -3962,7 +3962,7 @@ void ControlSignaling::writeRF_TSDU_U_Dereg_Ack(uint32_t srcId)
 
     // a roaming SU is acknowledged by its SUID (TIA-102.AABC-D 6.2.22); look it up before de-registration releases the WUID
     const bool roaming = m_p25->m_wuidLookup->isPoolWuid(srcId);
-    lookups::P25WuidLookup::SUID suid = { 0U, 0U, srcId };                          // 0 encodes the site WACN and System ID
+    lookups::P25WuidLookup::SUID suid = { SUID_SITE_DEFAULT, SUID_SITE_DEFAULT, srcId };  // Home SU: the site WACN and System ID
     lookups::P25WuidLookup::SUID assigned;
     if (roaming && m_p25->m_wuidLookup->findByWuid(srcId, assigned)) {
         suid = assigned;

@@ -65,12 +65,12 @@ namespace p25
             public:
                 /**
                  * @brief SUID WACN ID of the target SU when AIV = 1 and EX = 1 (20-bit).
-                 *  A value of 0 encodes the site WACN ID (Home SU).
+                 *  SUID_SITE_DEFAULT (the default) encodes the site WACN ID (Home SU).
                  */
                 DECLARE_PROPERTY(uint32_t, suidNetId, SUIDNetId);
                 /**
                  * @brief SUID System ID of the target SU when AIV = 1 and EX = 1 (12-bit).
-                 *  A value of 0 encodes the site System ID (Home SU).
+                 *  SUID_SITE_DEFAULT (the default) encodes the site System ID (Home SU).
                  */
                 DECLARE_PROPERTY(uint32_t, suidSysId, SUIDSysId);
             };

@@ -186,5 +186,61 @@ TEST_CASE("TSBK registration responses", "[p25][tsbk][registration]") {
         }
     }
 
+    // a non-home SUID carrying System ID $000 must be echoed as $000, not replaced by the site System ID
+    SECTION("ACK_RSP_FNE_Target_SUID_System_ID_Zero_Echoed") {
+        IOSP_ACK_RSP iosp;
+        iosp.setAIV(true);
+        iosp.setEX(true);
+        iosp.setService(TSBKO::IOSP_U_REG);
+        iosp.setSUIDNetId(0xBB800U);
+        iosp.setSUIDSysId(0x000U);
+        iosp.setSrcId(0x0F4240U);                                                   // Target ID (SUID Unit ID)
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0xECU, 0xBBU, 0x80U, 0x00U, 0x00U, 0x0FU, 0x42U, 0x40U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_DEREG_ACK_SUID_WACN_And_System_ID_Zero_Echoed") {
+        OSP_U_DEREG_ACK osp;
+        osp.setSUIDNetId(0x00000U);
+        osp.setSUIDSysId(0x000U);
+        osp.setDstId(0x0F4240U);                                                    // Source ID (SUID Unit ID)
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        osp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x0FU, 0x42U, 0x40U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
+    SECTION("U_REG_RSP_Abbreviated_System_ID_Zero_Echoed") {
+        IOSP_U_REG iosp;
+        iosp.setResponse(ResponseCode::DENY);
+        iosp.setSUIDSysId(0x000U);
+        iosp.setDstId(0x0F4240U);                                                   // Source ID (SUID Unit ID)
+        iosp.setSrcId(0x000000U);                                                   // Source Address ("No one")
+
+        uint8_t raw[P25_TSBK_LENGTH_BYTES];
+        ::memset(raw, 0x00U, sizeof(raw));
+        iosp.encode(raw, true, true);
+
+        const uint8_t expected[8U] = { 0x20U, 0x00U, 0x0FU, 0x42U, 0x40U, 0x00U, 0x00U, 0x00U };
+        for (uint32_t i = 0U; i < 8U; i++) {
+            INFO("octet " << (i + 2U));
+            CHECK(raw[i + 2U] == expected[i]);
+        }
+    }
+
     TSBK::setSiteData(previousSiteData);
 }
