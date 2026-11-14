@@ -2449,7 +2449,8 @@ void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid,
     }
 
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    m_network->m_unitRouteRegistry.updateSuid(suid, link.peerId, link.peerId, false, now);
+    // a roaming route is SUID-only: bare Unit ID consumers keep their pre-roaming behaviour for the unit (spec 2.6)
+    m_network->m_unitRouteRegistry.updateRoaming(suid, link.peerId, now);
 }
 
 /* Removes the SUID route when it uses the link. */

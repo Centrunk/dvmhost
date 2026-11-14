@@ -83,7 +83,7 @@ bool UnitRouteRegistry::update(uint32_t unitId, uint32_t peerId, uint32_t ssrc, 
         return false;
     }
 
-    return storeLocked(suid, peerId, ssrc, learned, nowMs);
+    return storeLocked(suid, peerId, ssrc, learned, false, nowMs);
 }
 
 /* Adds or refreshes a route for a SUID. */
@@ -95,7 +95,19 @@ bool UnitRouteRegistry::updateSuid(const roaming::SUID& suid, uint32_t peerId, u
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    return storeLocked(suid, peerId, ssrc, learned, nowMs);
+    return storeLocked(suid, peerId, ssrc, learned, false, nowMs);
+}
+
+/* Adds or refreshes a P25 roaming route for a SUID served through another link. */
+
+bool UnitRouteRegistry::updateRoaming(const roaming::SUID& suid, uint32_t peerId, uint64_t nowMs)
+{
+    if (!suid.valid()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return storeLocked(suid, peerId, peerId, false, true, nowMs);
 }
 
 /* Replaces all explicit own-system routes learned through one peer. */
@@ -104,7 +116,7 @@ void UnitRouteRegistry::replacePeer(uint32_t peerId, const std::vector<uint32_t>
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto it = m_routes.begin(); it != m_routes.end();) {
-        if (isOwn(it->second) && it->second.peerId == peerId && !it->second.learned &&
+        if (isOwn(it->second) && it->second.peerId == peerId && !it->second.learned && !it->second.roamed &&
             std::find(unitIds.cbegin(), unitIds.cend(), it->second.unitId) == unitIds.cend()) {
             it = m_routes.erase(it);
         }
@@ -126,6 +138,7 @@ void UnitRouteRegistry::replacePeer(uint32_t peerId, const std::vector<uint32_t>
         route.ssrc = ssrc != 0U ? ssrc : peerId;
         route.lastSeen = nowMs;
         route.learned = false;
+        route.roamed = false;
         route.valid = true;
     }
 }
@@ -137,6 +150,12 @@ bool UnitRouteRegistry::erase(uint32_t unitId, uint32_t peerId)
     std::lock_guard<std::mutex> lock(m_mutex);
     const roaming::SUID suid = ownSuid(unitId);
     if (!suid.valid()) {
+        return false;
+    }
+
+    // a roaming route is owned by the mobility service (eraseSuid), not by a bare deregistration
+    auto it = m_routes.find(suid.pack());
+    if (it != m_routes.end() && it->second.roamed) {
         return false;
     }
 
@@ -163,7 +182,7 @@ std::vector<uint32_t> UnitRouteRegistry::erasePeer(uint32_t peerId)
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto it = m_routes.begin(); it != m_routes.end();) {
         if (it->second.peerId == peerId) {
-            if (isOwn(it->second)) {
+            if (isOwn(it->second) && !it->second.roamed) {
                 removed.push_back(it->second.unitId);
             }
 
@@ -204,7 +223,14 @@ UnitRoute UnitRouteRegistry::resolve(uint32_t unitId, uint64_t nowMs) const
         return UnitRoute();
     }
 
-    return resolveLocked(suid.pack(), nowMs);
+    // a home unit served by another system is routed by SUID only; bare Unit ID consumers (REST and subscriber
+    //  operation targets, U2U availability and routing) must not address it on the foreign system (spec 2.6)
+    const UnitRoute route = resolveLocked(suid.pack(), nowMs);
+    if (route.roamed) {
+        return UnitRoute();
+    }
+
+    return route;
 }
 
 /* Resolves a current route for a SUID. */
@@ -250,7 +276,7 @@ bool UnitRouteRegistry::isOwn(const UnitRoute& route) const
 
 /* Adds or refreshes a route. */
 
-bool UnitRouteRegistry::storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs)
+bool UnitRouteRegistry::storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, bool roamed, uint64_t nowMs)
 {
     if (suid.unitId == 0U || peerId == 0U)
         return false;
@@ -272,6 +298,7 @@ bool UnitRouteRegistry::storeLocked(const roaming::SUID& suid, uint32_t peerId, 
     route.ssrc = ssrc != 0U ? ssrc : peerId;
     route.lastSeen = nowMs;
     route.learned = learned;
+    route.roamed = roamed;
     route.valid = true;
     return true;
 }

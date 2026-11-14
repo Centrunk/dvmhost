@@ -42,6 +42,8 @@ namespace network
         uint32_t ssrc = 0U;          //!< Advertised route origin or immediate peer SSRC.
         uint64_t lastSeen = 0U;      //!< Last update time in milliseconds.
         bool learned = false;        //!< True when learned from validated traffic rather than registration.
+        bool roamed = false;         //!< True when stored by P25 roaming for a unit served through another link; only SUID
+                                     //!<  lookups see it (bare Unit ID lookups ignore it until sub-project 3d).
         bool valid = false;          //!< True when the resolved route is current.
     };
 
@@ -51,7 +53,8 @@ namespace network
 
     /**
      * @brief Stores timestamped subscriber-unit next-hop routes shared by all digital protocols, keyed by the
-     *  packed 64-bit SUID (spec 2.6). Bare Unit ID methods address this system's own units.
+     *  packed 64-bit SUID (spec 2.6). Bare Unit ID methods address this system's own units and never see roaming
+     *  routes (UnitRoute::roamed).
      * @ingroup fne_network
      */
     class HOST_SW_API UnitRouteRegistry {
@@ -95,7 +98,16 @@ namespace network
          */
         bool updateSuid(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs);
         /**
-         * @brief Replaces all explicit own-system routes learned through one peer.
+         * @brief Adds or refreshes a P25 roaming route for a SUID served through another link (spec 2.6). The route
+         *  is visible to resolveSuid() only; bare Unit ID lookups, erase() and replacePeer() ignore it.
+         * @param suid Subscriber SUID.
+         * @param peerId Immediate next-hop peer ID (the roaming link).
+         * @param nowMs Update time in milliseconds.
+         * @returns bool True when a valid route was stored; otherwise, false.
+         */
+        bool updateRoaming(const roaming::SUID& suid, uint32_t peerId, uint64_t nowMs);
+        /**
+         * @brief Replaces all explicit own-system routes learned through one peer (roaming routes are kept).
          * @param peerId Immediate next-hop peer ID.
          * @param unitIds Complete registration snapshot for the peer.
          * @param ssrc Advertised route origin or immediate peer SSRC.
@@ -103,7 +115,7 @@ namespace network
          */
         void replacePeer(uint32_t peerId, const std::vector<uint32_t>& unitIds, uint32_t ssrc, uint64_t nowMs);
         /**
-         * @brief Removes an own-system route when it is currently owned by the specified peer.
+         * @brief Removes an own-system route when it is currently owned by the specified peer (never a roaming route).
          * @param unitId Subscriber unit ID.
          * @param peerId Immediate next-hop peer ID.
          * @returns bool True when a route was removed; otherwise, false.
@@ -119,7 +131,7 @@ namespace network
         /**
          * @brief Removes every route using a peer as its next hop.
          * @param peerId Immediate next-hop peer ID.
-         * @returns std::vector<uint32_t> Removed own-system subscriber unit IDs.
+         * @returns std::vector<uint32_t> Removed own-system subscriber unit IDs (roaming routes are removed but not reported).
          */
         std::vector<uint32_t> erasePeer(uint32_t peerId);
         /**
@@ -132,7 +144,8 @@ namespace network
          * @brief Resolves a current route for one of this system's units.
          * @param unitId Subscriber unit ID.
          * @param nowMs Current time in milliseconds.
-         * @returns UnitRoute Current route, or an invalid route when unavailable.
+         * @returns UnitRoute Current route, or an invalid route when unavailable or when the unit is only routed by
+         *  P25 roaming.
          */
         UnitRoute resolve(uint32_t unitId, uint64_t nowMs) const;
         /**
@@ -175,10 +188,11 @@ namespace network
          * @param peerId Immediate next-hop peer ID.
          * @param ssrc Advertised route origin or immediate peer SSRC.
          * @param learned True for a traffic-learned route.
+         * @param roamed True for a P25 roaming route.
          * @param nowMs Update time in milliseconds.
          * @returns bool True when a valid route was stored; otherwise, false.
          */
-        bool storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs);
+        bool storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, bool roamed, uint64_t nowMs);
         /**
          * @brief Removes a route owned by a peer (caller holds m_mutex).
          * @param key Packed SUID.

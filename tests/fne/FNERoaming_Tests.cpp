@@ -642,3 +642,39 @@ TEST_CASE("FNE does not record unit routes for registrations arriving from an up
     harness.traffic.roaming()->linkDown(upstream);
     CHECK(FNETestHooks::findSuidRoute(harness.traffic, SUID{ 0xDEE00U, 0x911U, 0x0F4240U }) == 0U);
 }
+
+TEST_CASE("FNE keeps a roamed home unit's route SUID-only so bare Unit ID lookups never pick the neighbor link", "[fne][roaming][route]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));                 // this FNE is the home of $911
+    harness.radios.addEntry(0x0F4240U, true, "home roamer");
+    FNETestHooks::configurePrivateCallRouting(harness.traffic, true, "reject", false, 0U);
+
+    // the SU roams to system $13B behind a neighbor FNE link
+    const RoamingLink fne13B = { 2001U, false };
+    network::FNEPeerConnection& neighbor = FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true);
+    neighbor.peerClass(network::PEER_CONN_CLASS_NEIGHBOR);
+    neighbor.p25RoamingCapable(true);
+    harness.traffic.roaming()->linkUp(fne13B, true, true, 0xDEE00U, 0x13BU);
+
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2001U, reg);
+    REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+
+    // the roaming route is kept by full SUID for the location data
+    const SUID home = { 0xDEE00U, 0x911U, 0x0F4240U };
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, home) == 2001U);
+
+    // bare Unit ID consumers (REST/SubscriberOperation targets, U2U availability and routing) behave as before roaming:
+    //  the unit is unknown here and never addressed by bare ID on the foreign system
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, 0x0F4240U) == 0U);
+    CHECK_FALSE(FNETestHooks::isUnitRouteAvailable(harness.traffic, 0x0F4240U));
+
+    // a local re-registration restores the normal bare route
+    FNETestHooks::registerP25Unit(harness.traffic, 501U, 0x0F4240U);
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, 0x0F4240U) == 501U);
+    CHECK(FNETestHooks::isUnitRouteAvailable(harness.traffic, 0x0F4240U));
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, home) == 501U);
+    CHECK(harness.traffic.roaming()->homeRecords().empty());
+}
