@@ -50,8 +50,9 @@ namespace network
             NOT_CAPABLE = 0U,                           //!< Accept the login without P25 roaming
             CAPABLE = 1U,                               //!< Accept the login with P25 roaming
             REJECT_MISMATCH = 2U,                       //!< Reject: host WACN ID or System ID differs from this system
-            SAME_SYSTEM_FNE = 3U                        //!< Accept without P25 roaming: a downstream FNE offered this system's
+            SAME_SYSTEM_FNE = 3U,                       //!< Accept without P25 roaming: a downstream FNE offered this system's
                                                         //!<  own identity (exactly one FNE per system holds it, the home)
+            REJECT_PROTECTED_WACN = 4U                  //!< Reject: the offered WACN ID lies in the protected BEE00 - BEEFF range
         };
     }
 

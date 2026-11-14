@@ -111,6 +111,12 @@ RoamingLogin::E RoamingConfig::evaluateLogin(const json::object& peerConfig, boo
         return RoamingLogin::NOT_CAPABLE;
     }
 
+    // a WACN ID in BEE00 - BEEFF is refused for a peer exactly as for this FNE's own p25NetId (see AGENTS.md); it is
+    //  checked first so a downstream FNE (exempt from the mismatch check) cannot bring one in
+    if (offered && peer.netId >= ROAM_WACN_PROTECTED_START && peer.netId <= ROAM_WACN_PROTECTED_END) {
+        return RoamingLogin::REJECT_PROTECTED_WACN;
+    }
+
     // a host belongs to this system; a different WACN ID or System ID would break every home decision (spec 2.2)
     if (!neighbor && offered && (peer.netId != m_netId || peer.sysId != m_sysId)) {
         return RoamingLogin::REJECT_MISMATCH;

@@ -107,6 +107,14 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                             return;
                         }
 
+                        if (roamingLogin == RoamingLogin::REJECT_PROTECTED_WACN) {
+                            LogError(LOG_MASTER, "PEER %u RPTC NAK, offered P25 netId = $%05X lies in the protected BEE00 - BEEFF range, which must never be used",
+                                peerId, peerRoaming.netId);
+                            network->writePeerNAK(peerId, TAG_REPEATER_CONFIG, NET_CONN_NAK_INVALID_CONFIG_DATA, req->address, req->addrLen);
+                            network->disconnectPeer(peerId, connection);
+                            return;
+                        }
+
                         if (roamingLogin == RoamingLogin::SAME_SYSTEM_FNE) {
                             std::string offeredIdentity = "* UNK *";
                             const json::object::const_iterator ident = offered.find("identity");

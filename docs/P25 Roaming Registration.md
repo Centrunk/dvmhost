@@ -56,7 +56,9 @@ P25 roaming between DVM systems is negotiated only when both identity keys are s
 values. Both absent, or both `0` (as in `fne-config.example.yml`), means the FNE has no P25
 identity and behaves as it did before roaming; setting only one of the two disables roaming and
 logs an error. A WACN ID in BEE00 - BEEFF stops the FNE from starting whatever `p25SysId` holds;
-this protection must never be disabled (see the WACN restrictions in `AGENTS.md`).
+this protection must never be disabled (see the WACN restrictions in `AGENTS.md`). The same range is
+refused from peers: a host or downstream FNE that offers a WACN ID in BEE00 - BEEFF at login is rejected
+(RPTC NAK).
 
 While the FNE has an identity, a host that offers a `rfssConfig` WACN ID or System ID different from
 it is rejected at login (RPTC NAK, logged as an identity mismatch). Only a host with P25 enabled
