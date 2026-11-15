@@ -2920,8 +2920,8 @@ void Control::processUnitDereg(uint32_t srcId, bool automatic)
     if (m_network != nullptr && !roaming)
         m_network->announceUnitDeregistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
 
-    // fire off a U_REG_CMD to get the SU to re-affiliate; a roaming WUID expires off the RF thread, so its
-    //  command uses the standard MFID rather than the RF reader's m_lastMFID
+    // fire off a U_REG_CMD to get the SU to re-affiliate; expiry can run off the RF thread, so a roaming WUID's
+    //  command uses the standard MFID instead of m_lastMFID, while a home unit keeps the legacy m_lastMFID behavior
     if (m_enableControl && automatic) {
         m_control->writeRF_TSDU_U_Reg_Cmd(srcId, roaming);
     }
