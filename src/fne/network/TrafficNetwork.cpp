@@ -1692,7 +1692,7 @@ void TrafficNetwork::learnUnitRouteFromTraffic(uint32_t peerId, uint32_t srcId, 
     // update the peer unit registration
     const UnitRoute current = m_unitRouteRegistry.resolve(srcId, now);
     if (!current.valid || current.peerId != peerId) {
-        updatePeerUnitRegistration(peerId, srcId, ssrc, NET_SUBFUNC::NOP, false, true);
+        updatePeerUnitRegistration(peerId, srcId, ssrc, NET_SUBFUNC::NOP, false);
     }
 
     m_unitRouteRegistry.update(srcId, peerId, ssrc, true, now);
@@ -2090,10 +2090,9 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
 
 /* Adds one peer unit registration and publishes the aggregate upstream. */
 
-bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, NET_SUBFUNC::ENUM protocol, bool log,
-    bool learned)
+bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, NET_SUBFUNC::ENUM protocol, bool log)
 {
-    const bool p25Registered = !learned && protocol == NET_SUBFUNC::PROTOCOL_SUBFUNC_P25;
+    const bool p25Registered = protocol == NET_SUBFUNC::PROTOCOL_SUBFUNC_P25;
 
     std::vector<uint32_t> aggregate;
 
@@ -2120,8 +2119,7 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
     publishAggregatedUnitRegistrations(aggregate);
 
     // a home SU registering on a home site ends any registration at a serving RFSS (BACA 5.1); a downstream
-    //  neighbor FNE is another system, never a home site of this one, and a route learned from traffic is not
-    //  a registration on the site. Radios of other protocols may share the unit number, so only a P25-tagged
+    //  neighbor FNE is another system, never a home site of this one. Radios of other protocols may share the unit number, so only a P25-tagged
     //  registration counts; an untagged one (older host), DMR or NXDN never releases a roamer
     if (!p25Registered) {
         return true;
