@@ -2356,8 +2356,8 @@ bool TrafficNetwork::writeRoamingToLink(const RoamingLink& link, uint8_t subFunc
 
 void TrafficNetwork::updateUpstreamRoamingLinks()
 {
-    // link state changes never send; the lock only keeps the clock and the upstream receive thread from
-    //  applying the same transition twice or out of order
+    // called from the FNE clock and from the upstream PeerNetwork's ROAMING callback (via processUpstreamRoaming); the
+    //  lock keeps the two from applying the same transition twice or out of order, link state changes never send
     std::lock_guard<std::mutex> lock(m_upstreamRoamingMutex);
 
     for (auto& entry : m_host->m_peerNetworks) {
