@@ -3735,10 +3735,10 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
         LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, RID rejection, srcId = %u", iosp->toString().c_str(), srcId);
         ::ActivityLogEx(LOG_P25, true, "group affiliation request from %u to %s %u denied", srcId, "TG ", dstId);
 
-        if (m_p25->m_affiliations->groupUnaff(srcId) && !roaming && m_p25->m_network != nullptr)
+        if (m_p25->m_affiliations->groupUnaff(srcId) && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliationRemoval(srcId);
 
-        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_REQ_UNIT_NOT_VALID, TSBKO::IOSP_GRP_AFF, false, false, roaming);
+        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_REQ_UNIT_NOT_VALID, TSBKO::IOSP_GRP_AFF);
 
         return ResponseCode::REFUSED;
     }
