@@ -1045,7 +1045,7 @@ TEST_CASE("Network negotiates P25 roaming from the config ack", "[network][loopb
     // the first clock opens the peer socket and sends the login
     network.clock(11000U);
 
-    // payload bytes 6-11: flags $C0, WACN $DEE00, System ID $13B (spec 3.1); bytes 12-15 are the FNE's zero trailer
+    // payload bytes 6-11: flags $C0, WACN $DEE00, System ID $13B; bytes 12-15 are the FNE's zero trailer
     const std::vector<uint8_t> extendedAck = { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
         0xC0U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x00U, 0x00U, 0x00U, 0x00U };
     const std::vector<uint8_t> legacyAck = { 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U };
@@ -1202,7 +1202,7 @@ TEST_CASE("Network carries P25 roaming frames and SUID announcements only on a n
         0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
     const roaming::SUID suid = { 0xDEE00U, 0x911U, 0x0F4240U };
 
-    // not negotiated: nothing is sent and inbound ROAMING frames are dropped (spec 6, policy denial)
+    // not negotiated: nothing is sent and inbound ROAMING frames are dropped
     CHECK_FALSE(network.writeRoaming(NET_SUBFUNC::ROAM_SERVING_REG, reg.data(), (uint32_t)reg.size()));
     CHECK_FALSE(network.announceUnitRegistrationSUID(suid));
     REQUIRE(sendLoopbackFrame(masterSenderQueue, networkDestination, networkDestinationLen, reg,
@@ -1296,7 +1296,7 @@ TEST_CASE("Network grant requests carry the source WACN and System ID in bytes 4
 
     completeHandshake(network, masterReceiverQueue, masterSenderQueue, networkDestination, networkDestinationLen, 9012U);
 
-    // existing callers: bytes 0-10 stay zero (spec 10)
+    // existing callers: bytes 0-10 stay zero
     REQUIRE(network.writeGrantReq(2U, 0x0F4240U, 0x000FA1U, 0U, false, 0x04U));
     std::string payload;
     RTPFNEHeader fneHeader;

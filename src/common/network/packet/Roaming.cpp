@@ -27,7 +27,7 @@ bool Network::PacketHandler::roaming(Network* network, uint32_t peerId, uint32_t
     (void)now;
     (void)rtpHeader;
 
-    // a link that did not negotiate roaming never carries ROAMING messages (spec 6, policy denial)
+    // a link that did not negotiate roaming never carries ROAMING messages
     if (!network->isP25RoamingActive()) {
         LogWarning(LOG_NET, "PEER %u P25 ROAMING, link did not negotiate P25 roaming, subFunc = $%02X, dropped",
             network->m_peerId, fneHeader.getSubFunction());

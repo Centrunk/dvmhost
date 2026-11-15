@@ -276,7 +276,7 @@ namespace network
         // ---------------------------------------------------------------------------
 
         /**
-         * @brief Decoded ROAMING mobility message (spec 3.5). Fields that a sub-function does not carry are ignored.
+         * @brief Decoded ROAMING mobility message. Fields that a sub-function does not carry are ignored.
          * @ingroup network_core
          */
         struct DVM_COMMON_API RoamingMessage {
@@ -302,7 +302,7 @@ namespace network
         // ---------------------------------------------------------------------------
 
         /**
-         * @brief One SUID announcement entry (spec 3.4); talkgroup is used only by GRP_AFFIL_SUID and AFFILS_SUID.
+         * @brief One SUID announcement entry; talkgroup is used only by GRP_AFFIL_SUID and AFFILS_SUID.
          * @ingroup network_core
          */
         struct DVM_COMMON_API SuidAnnouncement {
@@ -315,7 +315,7 @@ namespace network
         // ---------------------------------------------------------------------------
 
         /**
-         * @brief P25 identity a peer offered in its RPTC p25Roaming object (spec 3.1).
+         * @brief P25 identity a peer offered in its RPTC p25Roaming object.
          * @ingroup network_core
          */
         struct DVM_COMMON_API RoamingPeerConfig {
@@ -329,7 +329,7 @@ namespace network
         // ---------------------------------------------------------------------------
 
         /**
-         * @brief Encodes and decodes the DVM P25 roaming wire formats (spec 3). Decoders are bounded:
+         * @brief Encodes and decodes the DVM P25 roaming wire formats. Decoders are bounded:
          *  every length is checked before any field is read, and outputs are written only on success.
          * @ingroup network_core
          */

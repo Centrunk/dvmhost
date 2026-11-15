@@ -835,7 +835,7 @@ bool Network::writeConfig()
 
     config["software"].set<std::string>(std::string(software));
 
-    // offer the P25 identity for roaming negotiation (spec 3.1); absent when not configured
+    // offer the P25 identity for roaming negotiation; absent when not configured
     appendP25RoamingConfig(config);
 
     json::value v = json::value(config);

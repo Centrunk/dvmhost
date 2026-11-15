@@ -365,7 +365,7 @@ namespace network
         void setKEKKeyResponseCallback(std::function<void(uint32_t, p25::kmm::KeyItem, uint8_t, uint8_t)>&& callback) { m_kekKeyRespCallback = callback; }
 
         /**
-         * @brief Sets the P25 identity offered to the master for roaming negotiation (spec 3.1).
+         * @brief Sets the P25 identity offered to the master for roaming negotiation.
          *  A zero or out-of-range WACN ID or System ID withdraws the offer.
          * @param netId P25 WACN ID (20-bit).
          * @param sysId P25 System ID (12-bit).
@@ -395,7 +395,7 @@ namespace network
         void setP25RoamingCallback(std::function<void(uint8_t, const uint8_t*, uint32_t)>&& callback) { m_p25RoamingCallback = callback; }
 
         /**
-         * @brief Writes a P25 ROAMING mobility message to the master (spec 3.5).
+         * @brief Writes a P25 ROAMING mobility message to the master.
          * @param subFunc ROAMING sub-function.
          * @param[in] data Encoded ROAMING message.
          * @param length Message length in bytes (at most roaming::MSG_ROAM_MAX_LEN).

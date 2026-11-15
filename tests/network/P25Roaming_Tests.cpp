@@ -243,7 +243,7 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         CHECK(msg.rejectedSubFunc == 0x10U);
         CHECK(msg.result == RoamResult::GEN_PROC_UNSUPPORTED);
 
-        // the remaining five sub-functions, from the byte layout in spec 3.5 (header, SUID $DEE00.$911.0F4240, body)
+        // the remaining five sub-functions (header, SUID $DEE00.$911.0F4240, body)
         const std::vector<uint8_t> sdereg = bytes({ { 0x01U, 0x07U, 0x00U, 0x00U, 0x00U, 0x2AU }, SUID_BYTES, RFSS_BYTES });
         RoamingMessage d1;
         REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, sdereg.data(), (uint32_t)sdereg.size(), d1) == RoamDecode::OK);

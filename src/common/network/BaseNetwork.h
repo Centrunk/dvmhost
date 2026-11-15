@@ -473,8 +473,8 @@ namespace network
          * @param slot DMR slot number (if DMR).
          * @param unitToUnit Flag indicating if this grant is unit-to-unit.
          * @param serviceOptions Protocol service-options octet for the requested grant.
-         * @param srcNetId Source radio's home WACN ID in bytes 4-6 (0 = own system; spec 3.3).
-         * @param srcSysId Source radio's home System ID in bytes 7-8 (0 = own system; spec 3.3).
+         * @param srcNetId Source radio's home WACN ID in bytes 4-6 (0 = own system).
+         * @param srcSysId Source radio's home System ID in bytes 7-8 (0 = own system).
          * @returns bool True, if grant request was sent, otherwise false. 
          */
         bool writeGrantReq(const uint8_t mode, const uint32_t srcId, const uint32_t dstId,
