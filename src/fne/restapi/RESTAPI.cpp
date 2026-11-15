@@ -2869,12 +2869,12 @@ void RESTAPI::restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload
     // the home sends Forced queries only on operator request (spec 4.5)
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (!m_network->roaming()->forcedQuery(suid, now)) {
-        LogWarning(LOG_REST, "P25 ROAMING, operator Forced query rejected, suid = $%05X.$%03X.%u, no home location record", suid.netId, suid.sysId, suid.unitId);
+        LogWarning(LOG_REST, "P25 ROAMING, operator Forced query rejected, suid = $%05X.$%03X.$%06X, no home location record", suid.netId, suid.sysId, suid.unitId);
         errorPayload(reply, "SUID has no home location record");
         return;
     }
 
-    LogInfoEx(LOG_REST, "P25 ROAMING, operator Forced query sent, suid = $%05X.$%03X.%u", suid.netId, suid.sysId, suid.unitId);
+    LogInfoEx(LOG_REST, "P25 ROAMING, operator Forced query sent, suid = $%05X.$%03X.$%06X", suid.netId, suid.sysId, suid.unitId);
 }
 
 /* REST API endpoint; implements get talkgroup grant list request. */

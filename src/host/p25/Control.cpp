@@ -2842,7 +2842,7 @@ bool Control::resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t&
 {
     // validate before any keyed lookup; the WUID table masks each field, so an out-of-range SUID could alias another SU
     if (!suid.valid()) {
-        LogWarning(LOG_NET, "P25, network message for out-of-range SUID $%05X.$%03X.%u, dropped", suid.netId, suid.sysId, suid.unitId);
+        LogWarning(LOG_NET, "P25, network message for out-of-range SUID $%05X.$%03X.$%06X, dropped", suid.netId, suid.sysId, suid.unitId);
         return false;
     }
 
@@ -2863,7 +2863,7 @@ bool Control::resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t&
     const lookups::P25WuidLookup::SUID wsuid = { suid.netId, suid.sysId, suid.unitId };
     uint32_t wuid = 0U;
     if (!m_wuidLookup->findBySuid(wsuid, wuid)) {
-        LogWarning(LOG_NET, "P25, network message for $%05X.$%03X.%u, SU not registered at this site, dropped", suid.netId, suid.sysId,
+        LogWarning(LOG_NET, "P25, network message for $%05X.$%03X.$%06X, SU not registered at this site, dropped", suid.netId, suid.sysId,
             suid.unitId);
         return false;
     }

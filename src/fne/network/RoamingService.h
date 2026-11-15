@@ -272,6 +272,7 @@ namespace network
          */
         struct Pending {
             RoamingLink ingress;                        //!< Link to relay the response to (invalid when originated here).
+            RoamingLink egress;                         //!< Link the request was sent on.
             uint8_t subFunc = 0U;                       //!< Request sub-function.
             uint64_t suid = 0U;                         //!< Packed subject SUID.
             uint64_t startedMs = 0U;                    //!< Time the request was sent.

@@ -2009,7 +2009,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
             }
 
             if (!foreign(entry.suid)) {
-                LogWarning(LOG_MASTER, "PEER %u SUID announcement for this system's unit $%05X.$%03X.%u, dropped", peerId,
+                LogWarning(LOG_MASTER, "PEER %u SUID announcement for this system's unit $%05X.$%03X.$%06X, dropped", peerId,
                     entry.suid.netId, entry.suid.sysId, entry.suid.unitId);
                 return false;
             }
@@ -2031,7 +2031,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
             }
 
             if (m_verbose) {
-                LogInfoEx(LOG_MASTER, "PEER %u SUID announcement, subFunc = $%02X, suid = $%05X.$%03X.%u, tgId = %u", peerId, subFunc,
+                LogInfoEx(LOG_MASTER, "PEER %u SUID announcement, subFunc = $%02X, suid = $%05X.$%03X.$%06X, tgId = %u", peerId, subFunc,
                     entry.suid.netId, entry.suid.sysId, entry.suid.unitId, entry.talkgroup);
             }
             return true;
@@ -2449,7 +2449,8 @@ void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid,
     // an upstream link's ID is a PeerNetwork key, not a downstream peer ID; the unit route table only holds
     //  downstream peers, so upstream routing is not recorded here (designed in sub-project 3d)
     if (link.upstream) {
-        LogDebug(LOG_MASTER, "P25 ROAMING, upstream %u route for suid unit %u not recorded", link.peerId, suid.unitId);
+        LogDebug(LOG_MASTER, "P25 ROAMING, UPSTREAM %u route for suid = $%05X.$%03X.$%06X not recorded", link.peerId, suid.netId, suid.sysId,
+            suid.unitId);
         return;
     }
 

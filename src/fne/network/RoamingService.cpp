@@ -269,7 +269,9 @@ void RoamingService::clock(uint64_t nowMs)
         std::lock_guard<std::mutex> lock(m_mutex);
         for (auto it = m_pending.begin(); it != m_pending.end();) {
             if (nowMs >= it->second.startedMs && nowMs - it->second.startedMs >= ROAM_FNE_PENDING_TIMEOUT_MS) {
-                LogWarning(LOG_MASTER, "P25 ROAMING, txnId = %08X expired without a response, completed as FAILED", it->first.second);
+                const SUID suid = SUID::unpack(it->second.suid);
+                LogWarning(LOG_MASTER, "P25 ROAMING, %s %u subFunc = $%02X, suid = $%05X.$%03X.$%06X, txnId = %08X expired without a response, completed as FAILED",
+                    linkName(it->second.egress), it->second.egress.peerId, it->second.subFunc, suid.netId, suid.sysId, suid.unitId, it->first.second);
                 it = m_pending.erase(it);
             }
             else {
@@ -280,7 +282,7 @@ void RoamingService::clock(uint64_t nowMs)
         for (auto it = m_home.begin(); it != m_home.end();) {
             if (nowMs >= it->second.expiresAtMs) {
                 const HomeRecord rec = it->second;
-                LogInfoEx(LOG_MASTER, "P25 ROAMING, home registration expired, suid = $%05X.$%03X.%u", rec.suid.netId, rec.suid.sysId,
+                LogInfoEx(LOG_MASTER, "P25 ROAMING, home registration expired, suid = $%05X.$%03X.$%06X", rec.suid.netId, rec.suid.sysId,
                     rec.suid.unitId);
                 RoamingServiceHost* host = m_host;
                 actions.push_back([host, rec]() { host->eraseUnitRoute(rec.suid, rec.link); });
@@ -322,7 +324,7 @@ void RoamingService::revalidateHomeRecords(uint64_t nowMs)
 
             const HomeRecord rec = it->second;
             m_home.erase(it);
-            LogWarning(LOG_MASTER, "P25 ROAMING, home unit no longer authorized, Non-Roamed Home Deregistration, suid = $%05X.$%03X.%u",
+            LogWarning(LOG_MASTER, "P25 ROAMING, home unit no longer authorized, Non-Roamed Home Deregistration, suid = $%05X.$%03X.$%06X",
                 rec.suid.netId, rec.suid.sysId, rec.suid.unitId);
             sendHomeDereg(actions, rec.link, rec.suid, RoamQualifier::NON_ROAMED, nowMs);
             RoamingServiceHost* host = m_host;
@@ -359,8 +361,8 @@ void RoamingService::localRegistration(uint32_t unitId, uint64_t nowMs)
 
         const HomeRecord rec = it->second;
         m_home.erase(it);
-        LogInfoEx(LOG_MASTER, "P25 ROAMING, home unit registered on a home site, Roamed Home Deregistration to $%05X.$%03X RFSS $%02X, unitId = %u",
-            rec.serving.netId, rec.serving.sysId, rec.serving.rfssId, unitId);
+        LogInfoEx(LOG_MASTER, "P25 ROAMING, home unit registered on a home site, Roamed Home Deregistration to $%05X.$%03X RFSS $%02X, suid = $%05X.$%03X.$%06X",
+            rec.serving.netId, rec.serving.sysId, rec.serving.rfssId, rec.suid.netId, rec.suid.sysId, rec.suid.unitId);
         sendHomeDereg(actions, rec.link, rec.suid, RoamQualifier::ROAMED, nowMs);
         RoamingServiceHost* host = m_host;
         actions.push_back([host, rec]() { host->eraseUnitRoute(rec.suid, rec.link); });
@@ -393,12 +395,13 @@ bool RoamingService::forcedQuery(const SUID& suid, uint64_t nowMs)
         query.queryType = RoamQueryType::FORCED;
 
         Pending pending;
+        pending.egress = link;
         pending.subFunc = query.subFunc;
         pending.suid = suid.pack();
         pending.startedMs = nowMs;
         m_pending[std::make_pair(link.key(), query.txnId)] = pending;
 
-        LogInfoEx(LOG_MASTER, "P25 ROAMING, Forced query to %s %u, suid = $%05X.$%03X.%u, txnId = %08X", linkName(link), link.peerId,
+        LogInfoEx(LOG_MASTER, "P25 ROAMING, Forced query to %s %u, suid = $%05X.$%03X.$%06X, txnId = %08X", linkName(link), link.peerId,
             suid.netId, suid.sysId, suid.unitId, query.txnId);
         queueSend(actions, link, query);
     }
@@ -531,7 +534,7 @@ void RoamingService::queueReply(ActionList& actions, const RoamingLink& link, co
     rsp.suid = request.suid;
     rsp.result = result;
 
-    LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X, suid = $%05X.$%03X.%u, txnId = %08X, result = $%02X",
+    LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X, suid = $%05X.$%03X.$%06X, txnId = %08X, result = $%02X",
         linkName(link), link.peerId, rsp.subFunc, rsp.suid.netId, rsp.suid.sysId, rsp.suid.unitId, rsp.txnId, result);
     queueSend(actions, link, rsp);
 }
@@ -606,21 +609,21 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
 
     // a duplicate of an accepted request gets the same answer and changes nothing (spec 6)
     if (existing != m_home.end() && existing->second.lastTxnId == msg.txnId && existing->second.link == ingress) {
-        LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u duplicate Serving Registration, suid = $%05X.$%03X.%u, txnId = %08X, answered SUCCESS",
+        LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u duplicate Serving Registration, suid = $%05X.$%03X.$%06X, txnId = %08X, answered SUCCESS",
             linkName(ingress), ingress.peerId, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
         queueSend(actions, ingress, successResponse(msg));
         return;
     }
 
     if (!authorized) {
-        LogWarning(LOG_MASTER, "P25 ROAMING, Serving Registration denied, home unit not in the RID ACL or disabled, suid = $%05X.$%03X.%u, txnId = %08X",
+        LogWarning(LOG_MASTER, "P25 ROAMING, Serving Registration denied, home unit not in the RID ACL or disabled, suid = $%05X.$%03X.$%06X, txnId = %08X",
             msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
         queueReply(actions, ingress, msg, RoamResult::MME_SU_UNKNOWN);
         return;
     }
 
     if (!isServingPermitted(msg.serving, ingress)) {
-        LogWarning(LOG_MASTER, "P25 ROAMING, Serving Registration denied, serving system not permitted, suid = $%05X.$%03X.%u, serving = $%05X.$%03X",
+        LogWarning(LOG_MASTER, "P25 ROAMING, Serving Registration denied, serving system not permitted, suid = $%05X.$%03X.$%06X, serving = $%05X.$%03X",
             msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.serving.netId, msg.serving.sysId);
         queueReply(actions, ingress, msg, RoamResult::MME_SU_REG_DISALLOWED);
         return;
@@ -651,7 +654,7 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
     rec.lastTxnId = msg.txnId;
     m_home[key] = rec;
 
-    LogInfoEx(LOG_MASTER, "P25 ROAMING, Serving Registration accepted, suid = $%05X.$%03X.%u, serving = $%05X.$%03X RFSS $%02X, txnId = %08X, expires = %us",
+    LogInfoEx(LOG_MASTER, "P25 ROAMING, Serving Registration accepted, suid = $%05X.$%03X.$%06X, serving = $%05X.$%03X RFSS $%02X, txnId = %08X, expires = %us",
         msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.serving.netId, msg.serving.sysId, msg.serving.rfssId, msg.txnId, m_expires);
     queueSend(actions, ingress, successResponse(msg));
 
@@ -719,13 +722,13 @@ void RoamingService::forwardTowardHome(ActionList& actions, const RoamingLink& i
 
     if (!egress.valid() || egress == ingress) {
         if (linkIsFne(ingress)) {
-            LogWarning(LOG_MASTER, "P25 ROAMING, no route toward $%05X.$%03X, suid unit = %u, txnId = %08X, answered MME_SU_UNKNOWN",
-                msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
+            LogWarning(LOG_MASTER, "P25 ROAMING, %s %u subFunc = $%02X, no route toward the home system, suid = $%05X.$%03X.$%06X, txnId = %08X, answered MME_SU_UNKNOWN",
+                linkName(ingress), ingress.peerId, msg.subFunc, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
             queueReply(actions, ingress, msg, RoamResult::MME_SU_UNKNOWN);
         }
         else {
-            LogWarning(LOG_MASTER, "P25 ROAMING, no route toward $%05X.$%03X, suid unit = %u, txnId = %08X, completes as FAILED at the host",
-                msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
+            LogWarning(LOG_MASTER, "P25 ROAMING, %s %u subFunc = $%02X, no route toward the home system, suid = $%05X.$%03X.$%06X, txnId = %08X, completes as FAILED at the host",
+                linkName(ingress), ingress.peerId, msg.subFunc, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
         }
         return;
     }
@@ -740,6 +743,8 @@ void RoamingService::forwardTowardServing(ActionList& actions, const RoamingLink
     auto it = m_serving.find(msg.suid.pack());
     if (it == m_serving.end() || it->second.link == ingress) {
         // Not Found (BACA 2.1.4.1.3)
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u subFunc = $%02X for an SU not served behind another link, suid = $%05X.$%03X.$%06X, txnId = %08X, answered MME_SU_UNKNOWN",
+            linkName(ingress), ingress.peerId, msg.subFunc, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
         queueReply(actions, ingress, msg, RoamResult::MME_SU_UNKNOWN);
         return;
     }
@@ -764,6 +769,7 @@ void RoamingService::forward(ActionList& actions, const RoamingLink& ingress, co
 
     Pending pending;
     pending.ingress = ingress;
+    pending.egress = egress;
     pending.subFunc = msg.subFunc;
     pending.suid = msg.suid.pack();
     pending.startedMs = nowMs;
@@ -771,7 +777,7 @@ void RoamingService::forward(ActionList& actions, const RoamingLink& ingress, co
 
     RoamingMessage fwd = msg;
     fwd.hopCount = (uint8_t)(msg.hopCount - 1U);
-    LogInfoEx(LOG_MASTER, "P25 ROAMING, forward subFunc = $%02X from %s %u to %s %u, suid = $%05X.$%03X.%u, txnId = %08X", msg.subFunc,
+    LogInfoEx(LOG_MASTER, "P25 ROAMING, forward subFunc = $%02X from %s %u to %s %u, suid = $%05X.$%03X.$%06X, txnId = %08X", msg.subFunc,
         linkName(ingress), ingress.peerId, linkName(egress), egress.peerId, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
     queueSend(actions, egress, fwd);
 }
@@ -787,12 +793,13 @@ void RoamingService::sendHomeDereg(ActionList& actions, const RoamingLink& link,
     dereg.qualifier = qualifier;
 
     Pending pending;
+    pending.egress = link;
     pending.subFunc = dereg.subFunc;
     pending.suid = suid.pack();
     pending.startedMs = nowMs;
     m_pending[std::make_pair(link.key(), dereg.txnId)] = pending;
 
-    LogInfoEx(LOG_MASTER, "P25 ROAMING, Home Deregistration (%s) to %s %u, suid = $%05X.$%03X.%u, txnId = %08X",
+    LogInfoEx(LOG_MASTER, "P25 ROAMING, Home Deregistration (%s) to %s %u, suid = $%05X.$%03X.$%06X, txnId = %08X",
         (qualifier == RoamQualifier::ROAMED) ? "Roamed" : "Non-Roamed", linkName(link), link.peerId, suid.netId, suid.sysId, suid.unitId, dereg.txnId);
     queueSend(actions, link, dereg);
 }
@@ -803,8 +810,8 @@ void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from
 {
     auto it = m_pending.find(std::make_pair(from.key(), msg.txnId));
     if (it == m_pending.end()) {
-        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u response with unknown or stale txnId = %08X, subFunc = $%02X, dropped", linkName(from),
-            from.peerId, msg.txnId, msg.subFunc);
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u response with unknown or stale txnId = %08X, subFunc = $%02X, suid = $%05X.$%03X.$%06X, dropped",
+            linkName(from), from.peerId, msg.txnId, msg.subFunc, msg.suid.netId, msg.suid.sysId, msg.suid.unitId);
         return;
     }
 
@@ -812,8 +819,8 @@ void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from
     const bool matches = (msg.subFunc == NET_SUBFUNC::ROAM_GEN_RSP) ? (msg.rejectedSubFunc == pending.subFunc) :
         (msg.subFunc == (uint8_t)(pending.subFunc + 1U) && msg.suid.pack() == pending.suid);
     if (!matches) {
-        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X does not match txnId = %08X, dropped", linkName(from), from.peerId,
-            msg.subFunc, msg.txnId);
+        LogWarning(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X, suid = $%05X.$%03X.$%06X does not match txnId = %08X, dropped",
+            linkName(from), from.peerId, msg.subFunc, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
         return;
     }
 
@@ -822,8 +829,9 @@ void RoamingService::handleResponse(ActionList& actions, const RoamingLink& from
     // A response to a request originated here completes the transaction. It never touches the served-roamer table,
     // so a late answer from a previous serving link cannot release the roamer's new record.
     if (!pending.ingress.valid()) {
-        LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X, txnId = %08X, result = $%02X", linkName(from), from.peerId,
-            msg.subFunc, msg.txnId, msg.result);
+        const SUID suid = SUID::unpack(pending.suid);
+        LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u response subFunc = $%02X, suid = $%05X.$%03X.$%06X, txnId = %08X, result = $%02X", linkName(from),
+            from.peerId, msg.subFunc, suid.netId, suid.sysId, suid.unitId, msg.txnId, msg.result);
         return;
     }
 

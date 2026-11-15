@@ -105,7 +105,7 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
 {
     // validate before any lookup; SUID::pack() masks each field, so an out-of-range SUID would alias another SU's key
     if (!suid.valid()) {
-        LogError(LOG_P25, "P25 ROAMING, SUID out of range, Serving Registration not sent, suid = $%05X.$%03X.%u", suid.netId,
+        LogError(LOG_P25, "P25 ROAMING, SUID out of range, Serving Registration not sent, suid = $%05X.$%03X.$%06X", suid.netId,
             suid.sysId, suid.unitId);
         return RequestResult::NOT_CAPABLE;
     }
@@ -163,7 +163,7 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
         msg.suid = suid;
         msg.serving = serving;
         msg.presence = confirmed ? RoamPresence::CONFIRMED : RoamPresence::NOT_CONFIRMED;
-        LogInfoEx(LOG_P25, "P25 ROAMING, Serving Registration to home, suid = $%05X.$%03X.%u, txnId = %08X, presence = %u",
+        LogInfoEx(LOG_P25, "P25 ROAMING, Serving Registration to home, suid = $%05X.$%03X.$%06X, txnId = %08X, presence = %u",
             suid.netId, suid.sysId, suid.unitId, entry.txnId, msg.presence);
         queueSend(actions, msg);
     }
@@ -337,7 +337,7 @@ void P25RoamingClient::processMessage(uint8_t subFunc, const uint8_t* data, uint
         break;
     case NET_SUBFUNC::ROAM_SERVING_DEREG_RSP:
         // any response completes a Serving Deregistration (spec 4.3)
-        LogInfoEx(LOG_P25, "P25 ROAMING, Serving Deregistration complete, suid = $%05X.$%03X.%u, txnId = %08X, result = $%02X",
+        LogInfoEx(LOG_P25, "P25 ROAMING, Serving Deregistration complete, suid = $%05X.$%03X.$%06X, txnId = %08X, result = $%02X",
             msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId, msg.result);
         break;
     case NET_SUBFUNC::ROAM_HOME_DEREG:
@@ -430,13 +430,13 @@ void P25RoamingClient::clock(uint32_t ms)
     runActions(actions);
 
     for (const Pending& entry : failed) {
-        LogWarning(LOG_P25, "P25 ROAMING, Serving Registration %s, suid = $%05X.$%03X.%u, txnId = %08X, FAILED",
+        LogWarning(LOG_P25, "P25 ROAMING, Serving Registration %s, suid = $%05X.$%03X.$%06X, txnId = %08X, FAILED",
             capable ? "timed out" : "lost with the FNE link", entry.suid.netId, entry.suid.sysId, entry.suid.unitId, entry.txnId);
         completeOutcome(entry.suid, entry.txnId, Outcome::FAILED, Profile(), entry.onAir);
     }
 
     for (const SUID& suid : forcedExpired) {
-        LogWarning(LOG_P25, "P25 ROAMING, SU did not re-register after a Forced query, Serving Deregistration, suid = $%05X.$%03X.%u",
+        LogWarning(LOG_P25, "P25 ROAMING, SU did not re-register after a Forced query, Serving Deregistration, suid = $%05X.$%03X.$%06X",
             suid.netId, suid.sysId, suid.unitId);
         sendServingDereg(suid);
         if (m_forcedExpiry != nullptr) {
@@ -515,7 +515,7 @@ void P25RoamingClient::startRefresh(ActionList& actions, Roamer& roamer, const R
     msg.suid = roamer.suid;
     msg.serving = serving;
     msg.presence = RoamPresence::NOT_CONFIRMED;
-    LogInfoEx(LOG_P25, "P25 ROAMING, Serving Registration refresh, suid = $%05X.$%03X.%u, txnId = %08X", roamer.suid.netId,
+    LogInfoEx(LOG_P25, "P25 ROAMING, Serving Registration refresh, suid = $%05X.$%03X.$%06X, txnId = %08X", roamer.suid.netId,
         roamer.suid.sysId, roamer.suid.unitId, entry.txnId);
     queueSend(actions, msg);
 }
@@ -526,7 +526,7 @@ bool P25RoamingClient::sendServingDereg(const SUID& suid)
 {
     RfssIdentity serving;
     if (!context(serving)) {
-        LogWarning(LOG_P25, "P25 ROAMING, FNE link is not roaming capable, Serving Deregistration not sent, suid = $%05X.$%03X.%u",
+        LogWarning(LOG_P25, "P25 ROAMING, FNE link is not roaming capable, Serving Deregistration not sent, suid = $%05X.$%03X.$%06X",
             suid.netId, suid.sysId, suid.unitId);
         return false;
     }
@@ -539,7 +539,7 @@ bool P25RoamingClient::sendServingDereg(const SUID& suid)
         msg.txnId = nextTxnId();
         msg.suid = suid;
         msg.serving = serving;
-        LogInfoEx(LOG_P25, "P25 ROAMING, Serving Deregistration to home, suid = $%05X.$%03X.%u, txnId = %08X", suid.netId, suid.sysId,
+        LogInfoEx(LOG_P25, "P25 ROAMING, Serving Deregistration to home, suid = $%05X.$%03X.$%06X, txnId = %08X", suid.netId, suid.sysId,
             suid.unitId, msg.txnId);
         queueSend(actions, msg);
     }
@@ -579,7 +579,7 @@ void P25RoamingClient::completeOutcome(const SUID& suid, uint32_t txnId, Outcome
         }
 
         // the home must not believe the SU is served here (spec 4.1 step 9)
-        LogWarning(LOG_P25, "P25 ROAMING, home accepted an SU that is not admitted here, suid = $%05X.$%03X.%u", suid.netId, suid.sysId,
+        LogWarning(LOG_P25, "P25 ROAMING, home accepted an SU that is not admitted here, suid = $%05X.$%03X.$%06X", suid.netId, suid.sysId,
             suid.unitId);
         sendServingDereg(suid);
         return;
@@ -636,7 +636,7 @@ void P25RoamingClient::handleRegResponse(const RoamingMessage& msg, bool general
 
     if (!found) {
         if (lateDereg) {
-            LogWarning(LOG_P25, "P25 ROAMING, late success after the SU was denied, Serving Deregistration, suid = $%05X.$%03X.%u, txnId = %08X",
+            LogWarning(LOG_P25, "P25 ROAMING, late success after the SU was denied, Serving Deregistration, suid = $%05X.$%03X.$%06X, txnId = %08X",
                 msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
             sendServingDereg(msg.suid);
         }
@@ -670,7 +670,7 @@ void P25RoamingClient::handleRegResponse(const RoamingMessage& msg, bool general
             break;
         default:
             // an unknown result code is treated as FAILED (spec 6)
-            LogWarning(LOG_P25, "P25 ROAMING, unknown result $%02X, treated as FAILED, suid = $%05X.$%03X.%u", msg.result, suid.netId,
+            LogWarning(LOG_P25, "P25 ROAMING, unknown result $%02X, treated as FAILED, suid = $%05X.$%03X.$%06X", msg.result, suid.netId,
                 suid.sysId, suid.unitId);
             outcome = Outcome::FAILED;
             break;
@@ -697,7 +697,7 @@ void P25RoamingClient::handleHomeDereg(const RoamingMessage& msg)
         found = true;
     }
 
-    LogInfoEx(LOG_P25, "P25 ROAMING, Home Deregistration (%s), suid = $%05X.$%03X.%u, txnId = %08X, %s",
+    LogInfoEx(LOG_P25, "P25 ROAMING, Home Deregistration (%s), suid = $%05X.$%03X.$%06X, txnId = %08X, %s",
         (msg.qualifier == RoamQualifier::NON_ROAMED) ? "Non-Roamed" : "Roamed", msg.suid.netId, msg.suid.sysId, msg.suid.unitId,
         msg.txnId, found ? "released" : "not found");
 

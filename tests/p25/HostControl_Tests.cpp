@@ -575,6 +575,7 @@ class P25TestNetwork final : public network::Network {
 public:
     /**
      * @brief One captured ROAMING write.
+     * @ingroup host_p25
      */
     struct RoamingWrite {
         uint8_t subFunc = 0U;                   //!< ROAMING sub-function.
@@ -583,6 +584,7 @@ public:
 
     /**
      * @brief One captured SUID announcement entry.
+     * @ingroup host_p25
      */
     struct SuidAnnouncementWrite {
         uint8_t subFunc = 0U;                   //!< Announcement sub-function.
