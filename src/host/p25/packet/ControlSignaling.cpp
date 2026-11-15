@@ -4190,11 +4190,6 @@ void ControlSignaling::releaseRoamingSU(const lookups::P25WuidLookup::SUID& suid
     if (m_p25->m_affiliations->isUnitReg(wuid)) {
         m_p25->m_affiliations->unitDereg(wuid, false);
     }
-
-    // the de-registration callback normally releases the WUID; release it here when no callback is installed
-    if (m_p25->m_wuidLookup->findBySuid(suid, wuid)) {
-        m_p25->m_wuidLookup->release(wuid);
-    }
 }
 
 /* Helper to write a unit de-registration acknowledge packet. */
