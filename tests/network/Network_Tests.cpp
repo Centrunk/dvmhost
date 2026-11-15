@@ -1083,6 +1083,67 @@ TEST_CASE("Network negotiates P25 roaming from the config ack", "[network][loopb
     masterReceiver.close();
 }
 
+TEST_CASE("Network handles a 1-byte config ack and an out-of-range master identity", "[network][loopback][roaming]")
+{
+    const uint16_t masterPort = reserveLoopbackPort();
+    REQUIRE(masterPort != 0U);
+
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+
+    Socket masterReceiver("127.0.0.1", masterPort);
+    REQUIRE(masterReceiver.open(AF_INET));
+
+    FrameQueue masterSenderQueue(&masterReceiver, 0xF3F5U, false);
+
+    sockaddr_storage networkDestination = {};
+    uint32_t networkDestinationLen = 0U;
+    REQUIRE(Socket::lookup("127.0.0.1", localPort, networkDestination, networkDestinationLen) == 0);
+
+    TestableNetwork network("127.0.0.1", masterPort, localPort, 9011U, "loopback-password", true, false, true, false, false, false, true, true, true, true, false, false);
+    network.enable(true);
+    REQUIRE(network.open());
+    network.clock(11000U);
+    network.setP25RoamingIdentity(0xDEE00U, 0x13BU, 0x01U);
+
+    auto sendConfigAck = [&](const std::vector<uint8_t>& payload) {
+        network.setAllowDiagnosticTransferForTest(true);
+        network.setAllowActivityTransferForTest(true);
+        network.setStatusForTest(NET_STAT_WAITING_CONFIG);
+        REQUIRE(sendLoopbackFrame(masterSenderQueue, networkDestination, networkDestinationLen, payload,
+            { NET_FUNC::ACK, NET_SUBFUNC::NOP }, 0x12345678U, 9011U, 9011U, 0U));
+        network.clock(1000U);
+    };
+
+    // a true pre-roaming master ACK: payload byte 0 = $80 only (packet length 7); roaming stays off, the login
+    //  completes and the alternate diagnostics port stays enabled
+    sendConfigAck({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x80U });
+    CHECK(network.getStatusForTest() == NET_STAT_RUNNING);
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK(network.getMasterP25NetId() == 0U);
+    CHECK(network.getAllowDiagnosticTransferForTest());
+    CHECK(network.getAllowActivityTransferForTest());
+
+    // the same 1-byte ACK without bit 7 still disables diagnostics and activity transfer, as before roaming
+    sendConfigAck({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U });
+    CHECK(network.getStatusForTest() == NET_STAT_RUNNING);
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK_FALSE(network.getAllowDiagnosticTransferForTest());
+    CHECK_FALSE(network.getAllowActivityTransferForTest());
+
+    // bit 6 with a WACN ID above $FFFFF or a System ID above $FFF is malformed: roaming stays off
+    sendConfigAck({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0xC0U, 0x10U, 0x00U, 0x00U, 0x01U, 0x3BU });
+    CHECK(network.getStatusForTest() == NET_STAT_RUNNING);
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK(network.getMasterP25NetId() == 0U);
+    CHECK(network.getAllowDiagnosticTransferForTest());
+    sendConfigAck({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0xC0U, 0x0DU, 0xEEU, 0x00U, 0x10U, 0x00U });
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK(network.getMasterP25SysId() == 0U);
+
+    masterReceiver.close();
+}
+
 TEST_CASE("Network carries P25 roaming frames and SUID announcements only on a negotiated link", "[network][loopback][roaming]")
 {
     const uint16_t masterPort = reserveLoopbackPort();

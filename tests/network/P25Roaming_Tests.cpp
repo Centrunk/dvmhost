@@ -242,6 +242,43 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_GEN_RSP, gen.data(), (uint32_t)gen.size(), msg) == RoamDecode::OK);
         CHECK(msg.rejectedSubFunc == 0x10U);
         CHECK(msg.result == RoamResult::GEN_PROC_UNSUPPORTED);
+
+        // the remaining five sub-functions, from the byte layout in spec 3.5 (header, SUID $DEE00.$911.0F4240, body)
+        const std::vector<uint8_t> sdereg = bytes({ { 0x01U, 0x07U, 0x00U, 0x00U, 0x00U, 0x2AU }, SUID_BYTES, RFSS_BYTES });
+        RoamingMessage d1;
+        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, sdereg.data(), (uint32_t)sdereg.size(), d1) == RoamDecode::OK);
+        CHECK(d1.subFunc == NET_SUBFUNC::ROAM_SERVING_DEREG);
+        CHECK(d1.hopCount == 7U);
+        CHECK(d1.txnId == 0x0000002AU);
+        CHECK(d1.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
+        CHECK(d1.serving == RfssIdentity{ 0xDEE00U, 0x13BU, 0x01U });
+
+        const std::vector<uint8_t> sderegRsp = bytes({ HDR, SUID_BYTES, { 0x57U } });
+        RoamingMessage d2;
+        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG_RSP, sderegRsp.data(), (uint32_t)sderegRsp.size(), d2) == RoamDecode::OK);
+        CHECK(d2.txnId == 0x12345678U);
+        CHECK(d2.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
+        CHECK(d2.result == RoamResult::MME_OBJ_NOT_REG_AT_SERV);
+
+        const std::vector<uint8_t> hdereg = bytes({ HDR, SUID_BYTES, { 0x01U } });
+        RoamingMessage d3;
+        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, hdereg.data(), (uint32_t)hdereg.size(), d3) == RoamDecode::OK);
+        CHECK(d3.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
+        CHECK(d3.qualifier == RoamQualifier::NON_ROAMED);
+
+        const std::vector<uint8_t> hderegRsp = bytes({ HDR, SUID_BYTES, { 0x22U } });
+        RoamingMessage d4;
+        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, hderegRsp.data(), (uint32_t)hderegRsp.size(), d4) == RoamDecode::OK);
+        CHECK(d4.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
+        CHECK(d4.result == RoamResult::MME_SU_UNKNOWN);
+
+        const std::vector<uint8_t> query = bytes({ { 0x01U, 0x01U, 0xFFU, 0xFFU, 0xFFU, 0xFFU }, SUID_BYTES, { 0x01U } });
+        RoamingMessage d5;
+        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_QUERY, query.data(), (uint32_t)query.size(), d5) == RoamDecode::OK);
+        CHECK(d5.hopCount == 1U);
+        CHECK(d5.txnId == 0xFFFFFFFFU);
+        CHECK(d5.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
+        CHECK(d5.queryType == RoamQueryType::FORCED);
     }
 
     SECTION("Serving_Registration_Response_Rejects_Undefined_Access_And_Flags") {
@@ -315,18 +352,31 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         msg.serving = RfssIdentity{ 0x100000U, 0x13BU, 1U };
         CHECK(encodeMessage(msg).empty());
 
+        // an out-of-range field leaves the output untouched
+        RoamingMessage untouched;
+        untouched.txnId = 0xCAFEF00DU;
+        untouched.suid = SUID{ 0x00001U, 0x002U, 3U };
         std::vector<uint8_t> wacn = bytes({ HDR, { 0x10U, 0x00U, 0x00U, 0x09U, 0x11U, 0x0FU, 0x42U, 0x40U }, { 0x00U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, wacn.data(), (uint32_t)wacn.size(), decoded) == RoamDecode::OUT_OF_RANGE);
+        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, wacn.data(), (uint32_t)wacn.size(), untouched) == RoamDecode::OUT_OF_RANGE);
         std::vector<uint8_t> sys = bytes({ HDR, { 0x0DU, 0xEEU, 0x00U, 0x10U, 0x00U, 0x0FU, 0x42U, 0x40U }, { 0x00U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, sys.data(), (uint32_t)sys.size(), decoded) == RoamDecode::OUT_OF_RANGE);
+        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, sys.data(), (uint32_t)sys.size(), untouched) == RoamDecode::OUT_OF_RANGE);
         std::vector<uint8_t> rfss = bytes({ HDR, SUID_BYTES, { 0x0DU, 0xEEU, 0x00U, 0x10U, 0x00U, 0x01U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, rfss.data(), (uint32_t)rfss.size(), decoded) == RoamDecode::OUT_OF_RANGE);
+        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, rfss.data(), (uint32_t)rfss.size(), untouched) == RoamDecode::OUT_OF_RANGE);
+        const std::vector<uint8_t> access = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, 0x03U, 0x00U } });
+        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, access.data(), (uint32_t)access.size(), untouched) == RoamDecode::OUT_OF_RANGE);
+        CHECK(untouched.txnId == 0xCAFEF00DU);
+        CHECK(untouched.suid == SUID{ 0x00001U, 0x002U, 3U });
+        CHECK(untouched.subFunc == 0U);
     }
 
     SECTION("Version_And_Unknown_Subfunction") {
         std::vector<uint8_t> v2 = bytes({ { 0x02U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U }, SUID_BYTES, { 0x00U } });
         RoamingMessage msg;
+        msg.txnId = 0xCAFEF00DU;
         CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, v2.data(), (uint32_t)v2.size(), msg) == RoamDecode::BAD_VERSION);
+        CHECK(msg.txnId == 0xCAFEF00DU);                                               // untouched on BAD_VERSION
+        CHECK(msg.version == 1U);
+        CHECK(msg.suid == SUID());
         CHECK(RoamingCodec::decode(0x10U, v2.data(), (uint32_t)v2.size(), msg) == RoamDecode::UNKNOWN_SUBFUNC);
 
         uint8_t version = 0U;

@@ -760,3 +760,38 @@ TEST_CASE("FNE rejects a downstream FNE offering a protected BEE00 - BEEFF WACN"
     REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1003U));
     CHECK(next.p25RoamingCapable());
 }
+
+TEST_CASE("FNE RPTC handler answers with the exact roaming ACK and identity-mismatch NAK bytes", "[fne][roaming][login]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x13BU));
+    std::vector<FNETestHooks::PeerWrite> writes;
+    FNETestHooks::capturePeerWriteData(harness.traffic, writes);
+
+    // ACK: peer ID (4), 2 zero bytes, then the 6-byte roaming payload (spec 3.1) and the 4-byte zero trailer
+    FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
+        rptcPacket("{\"identity\": \"SITE315\", \"peerClass\": 0, \"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 2}}"));
+    const FNETestHooks::PeerWrite* ack = nullptr;
+    for (const FNETestHooks::PeerWrite& write : writes) {
+        if (write.peerId == 1001U && write.function == network::NET_FUNC::ACK) {
+            ack = &write;
+        }
+    }
+    REQUIRE(ack != nullptr);
+    CHECK(ack->data == std::vector<uint8_t>({ 0x00U, 0x00U, 0x03U, 0xE9U, 0x00U, 0x00U,
+        0xC0U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x00U, 0x00U, 0x00U, 0x00U }));
+
+    // NAK: 6 zero bytes, peer ID (4), reason NET_CONN_NAK_INVALID_CONFIG_DATA (2)
+    writes.clear();
+    FNETestHooks::addPeer(harness.traffic, 1002U, network::NET_STAT_WAITING_CONFIG);
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1002U,
+        rptcPacket("{\"identity\": \"SITE911\", \"peerClass\": 0, \"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 2321, \"rfssId\": 1}}"));
+    REQUIRE(writes.size() == 1U);
+    CHECK(writes[0U].peerId == 1002U);
+    CHECK(writes[0U].function == network::NET_FUNC::NAK);
+    CHECK(writes[0U].data == std::vector<uint8_t>({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x03U, 0xEAU, 0x00U, (uint8_t)network::NET_CONN_NAK_INVALID_CONFIG_DATA }));
+    CHECK(network::NET_CONN_NAK_INVALID_CONFIG_DATA == 5);
+    CHECK_FALSE(FNETestHooks::hasPeer(harness.traffic, 1002U));
+}

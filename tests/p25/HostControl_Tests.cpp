@@ -3987,6 +3987,91 @@ TEST_CASE("P25 roaming deregistration, refresh and query at the serving host", "
         CHECK(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
     }
 
+    SECTION("Timer_Refresh_Rejected_Releases_The_Roamer_Silently") {
+        // MME_MUST_CONFIRM_SU_PRESENCE: the home records the SU at another serving RFSS (spec 4.2)
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        HostTestHooks::p25ClockU2U(*harness.m_control, 14400000U);
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 2U);
+        drainTSBKs(*harness.m_control);
+        answerServingRegistration(harness, RoamResult::MME_MUST_CONFIRM_SU_PRESENCE, RoamAccess::NONE);
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG) == nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_U_REG_CMD) == nullptr);
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+    }
+
+    SECTION("Timer_Refresh_With_No_Access_Releases_The_Roamer_And_Deregisters") {
+        const uint32_t wuid = registerRoamer(harness, 1001U);
+        HostTestHooks::p25ClockU2U(*harness.m_control, 14400000U);
+        drainTSBKs(*harness.m_control);
+        answerServingRegistration(harness, RoamResult::SUCCESS, RoamAccess::NONE);
+        CHECK(findTSBK(drainTSBKs(*harness.m_control), p25::defines::TSBKO::IOSP_U_REG) == nullptr);
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+
+        // the home accepted the SU, so it must learn the SU is not served here (spec 4.1 step 7)
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG).suid == roamer);
+    }
+
+    SECTION("Pool_Filling_Between_Request_And_Answer_Denies_And_Deregisters") {
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        const RoamingMessage first = lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG);
+
+        // eleven other roamers take every WUID of the pool (9000000 - 9000010) while the first request waits
+        for (uint32_t unitId = 2001U; unitId <= 2011U; unitId++) {
+            registerRoamer(harness, unitId);
+        }
+        REQUIRE(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 11U);
+
+        RoamingMessage rsp;
+        rsp.subFunc = network::NET_SUBFUNC::ROAM_SERVING_REG_RSP;
+        rsp.txnId = first.txnId;
+        rsp.suid = roamer;
+        rsp.result = RoamResult::SUCCESS;
+        rsp.expires = ROAM_DEFAULT_EXPIRES;
+        rsp.access = RoamAccess::FULL;
+        injectRoaming(harness, rsp);
+
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* deny = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(deny != nullptr);
+        CHECK((((*deny)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 11U);
+        REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
+        CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG).suid == roamer);
+    }
+
+    SECTION("General_Response_Rejecting_Serving_Registration_Is_REG_DENY") {
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        const RoamingMessage reg = lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_REG);
+
+        RoamingMessage gen;
+        gen.subFunc = network::NET_SUBFUNC::ROAM_GEN_RSP;
+        gen.txnId = reg.txnId;
+        gen.rejectedSubFunc = network::NET_SUBFUNC::ROAM_SERVING_REG;
+        gen.result = RoamResult::GEN_PROC_UNSUPPORTED;
+        injectRoaming(harness, gen);
+
+        std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* deny = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(deny != nullptr);
+        CHECK((((*deny)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isPending(roamer));
+        CHECK_FALSE(HostTestHooks::p25RoamingClient(*harness.m_control)->isRoamer(roamer));
+        CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
+        CHECK(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 0U);
+    }
+
     SECTION("SU_Refresh_Is_Confirmed_And_Answered_On_Air") {
         const uint32_t wuid = registerRoamer(harness, 1001U);
         buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
