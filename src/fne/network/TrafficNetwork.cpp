@@ -2119,8 +2119,9 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
     publishAggregatedUnitRegistrations(aggregate);
 
     // a home SU registering on a home site ends any registration at a serving RFSS (BACA 5.1); a downstream
-    //  neighbor FNE is another system, never a home site of this one. Radios of other protocols may share the unit number, so only a P25-tagged
-    //  registration counts; an untagged one (older host), DMR or NXDN never releases a roamer
+    //  neighbor FNE is another system, never a home site of this one. Radios of other protocols may share the
+    //  unit number, so only a P25-tagged registration counts; an untagged one (older host), DMR or NXDN never
+    //  releases a roamer
     if (!p25Registered || !m_roamingConfig.enabled()) {
         return true;
     }
