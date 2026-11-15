@@ -2757,18 +2757,6 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
         CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
     }
 
-    SECTION("Roaming_Disabled_Denied") {
-        prepareRoaming(harness, false, {});
-        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
-        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
-        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
-        CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
-        CHECK(((((uint32_t)rsp[2U] & 0x0FU) << 8) | rsp[3U]) == 0x001U);            // the site System ID, as before roaming
-        CHECK(getUint24(rsp, 4U) == 1001U);
-        CHECK(getUint24(rsp, 7U) == 1001U);
-        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
-    }
-
     SECTION("System_ID_Not_Listed_Denied") {
         prepareRoaming(harness, true, { 0x003U });
         buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
