@@ -84,7 +84,8 @@ the roaming log.
    ACL (unit present and enabled), records where the SU is served, and answers with `expires`, access
    and the radio inhibit flag. The DVM home FNE always answers access full and not inhibited; the host
    honors the other access and inhibit values if a home returns them. The home then deregisters the
-   previous serving system (Roamed) and any registration on its own sites.
+   previous serving system (Roamed) and any P25 registration on its own sites. A DMR or NXDN
+   radio with the same unit number, an untagged registration and a traffic-learned route stay in place.
 4. The site answers on air. Every message driven by the home's outcome uses the standard MFID.
    - Success with access full or emergency only: REG_ACCEPT with a WUID. Inhibited radios are then
      inhibited by WUID. Any other access value is treated as no access, and a response with an
@@ -120,6 +121,17 @@ serving FNE, not the home) sends it instead, so the two messages cannot cross on
 unit that registers on one of the home's own sites causes the home to send a Roamed Home
 Deregistration to its serving system. In the other direction, a home unit that registers at a
 serving system is silently released from the home site where it was registered.
+
+Only a P25 unit registration from a host fires that release. Radios of different protocols may
+share a unit number, so the host tags each unit registration announcement with its protocol (an
+optional fourth byte, see TN.1000). A registration that is untagged (sent by an older host), DMR,
+NXDN or learned from traffic never releases a roamer. The bulk registration snapshot carries no
+protocol and never releases one either. The reverse release, at a serving registration, removes
+only a P25-tagged registration on a home site, never a DMR or NXDN holder of the same unit ID.
+
+Compatibility: a home site that runs an older host sends untagged registrations, so it never
+triggers the release. The registration at the serving system then ends when it expires or when
+the serving site deregisters the unit.
 
 The FNE records no unit route for registrations that arrive over an upstream link (upstream routing
 is sub-project 3d); the registration itself is still authorized and tracked.

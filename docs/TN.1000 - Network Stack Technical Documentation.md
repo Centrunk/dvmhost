@@ -728,8 +728,8 @@ Reserved (6 bytes) + Peer ID (4 bytes) + Reason Code (2 bytes)
 | Code | Name | Purpose |
 |------|------|---------|
 | 0x00 | ANNC_SUBFUNC_GRP_AFFIL | Group affiliation |
-| 0x01 | ANNC_SUBFUNC_UNIT_REG | Unit registration |
-| 0x02 | ANNC_SUBFUNC_UNIT_DEREG | Unit deregistration |
+| 0x01 | ANNC_SUBFUNC_UNIT_REG | Unit registration: Source ID (3), optional protocol (1) |
+| 0x02 | ANNC_SUBFUNC_UNIT_DEREG | Unit deregistration: Source ID (3), optional protocol (1) |
 | 0x03 | ANNC_SUBFUNC_GRP_UNAFFIL | Group unaffiliation |
 | 0x04 | ANNC_SUBFUNC_UNIT_REG_SUID | Foreign unit registration: Unit ID (3), WACN (3), System ID (2) |
 | 0x05 | ANNC_SUBFUNC_UNIT_DEREG_SUID | Foreign unit deregistration: Unit ID (3), WACN (3), System ID (2) |
@@ -740,6 +740,20 @@ Reserved (6 bytes) + Peer ID (4 bytes) + Reason Code (2 bytes)
 | 0x92 | ANNC_SUBFUNC_UNIT_REGS_SUID | Complete foreign registration update: count (4), then 8-byte entries |
 | 0x93 | ANNC_SUBFUNC_AFFILS_SUID | Complete foreign affiliation update: count (4), then 11-byte entries |
 | 0x9A | ANNC_SUBFUNC_SITE_VC | Site voice channel list |
+
+**Unit registration protocol byte.** A host sends `ANNC_SUBFUNC_UNIT_REG` and
+`ANNC_SUBFUNC_UNIT_DEREG` as 4 bytes (`MSG_ANNC_UNIT_REG_PROTO`): the Source ID (3 bytes,
+big-endian), then the protocol the unit (de)registered on at offset 3, using the
+`PROTOCOL_SUBFUNC_*` values (`0x00` DMR, `0x01` P25, `0x02` NXDN). Older hosts send only
+the 3-byte Source ID (`MSG_ANNC_UNIT_REG`), meaning "protocol unknown". Older FNEs accept
+`length >= 3` and ignore the extra byte. Because DMR is `0x00`, a receiver decides whether the
+byte is present by length (`length >= 4`), never by a nonzero value.
+
+The FNE uses the protocol only for P25 roaming: a P25-tagged registration from a host releases
+a home unit's registration at a serving RFSS (see `docs/P25 Roaming Registration.md`).
+Registrations that are untagged, DMR or NXDN never do, because radios of different protocols
+may share a unit number. Deregistration handling ignores the protocol byte: removal works the
+same for every protocol. The bulk `ANNC_SUBFUNC_UNIT_REGS` snapshot carries no protocol.
 
 #### Replication Sub-Functions (REPL)
 
