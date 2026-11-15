@@ -257,9 +257,6 @@ TEST_CASE("FNE accepts hosts that offer a matching identity or no P25 roaming ob
     REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1001U));
     CHECK(FNETestHooks::peerState(harness.traffic, 1001U) == network::NET_STAT_RUNNING);
     CHECK(capable.p25RoamingCapable());
-    CHECK(capable.p25NetId() == 0xDEE00U);
-    CHECK(capable.p25SysId() == 0x13BU);
-    CHECK(capable.p25RfssId() == 2U);
 
     // a host without the object (conventional, older host) is accepted exactly as before
     network::FNEPeerConnection& legacy = FNETestHooks::addPeer(harness.traffic, 1002U, network::NET_STAT_WAITING_CONFIG);
@@ -268,8 +265,6 @@ TEST_CASE("FNE accepts hosts that offer a matching identity or no P25 roaming ob
     REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1002U));
     CHECK(FNETestHooks::peerState(harness.traffic, 1002U) == network::NET_STAT_RUNNING);
     CHECK_FALSE(legacy.p25RoamingCapable());
-    CHECK(legacy.p25NetId() == 0U);
-    CHECK(legacy.p25SysId() == 0U);
 }
 
 TEST_CASE("FNE without a P25 identity accepts any host identity as not roaming capable", "[fne][roaming][login]")
@@ -317,7 +312,6 @@ TEST_CASE("FNE decides the neighbor exemption with the same precedence as the pe
         REQUIRE(FNETestHooks::hasPeer(harness.traffic, 1001U));
         CHECK(neighbor.peerClass() == network::PEER_CONN_CLASS_NEIGHBOR);
         CHECK(neighbor.p25RoamingCapable());
-        CHECK(neighbor.p25SysId() == 0x911U);
     }
     {
         RoamingFNEHarness harness;

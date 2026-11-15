@@ -156,9 +156,6 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                         }
 
                         connection->p25RoamingCapable(roamingLogin == RoamingLogin::CAPABLE);
-                        connection->p25NetId(peerRoaming.netId);
-                        connection->p25SysId(peerRoaming.sysId);
-                        connection->p25RfssId(peerRoaming.rfssId);
                         if (roamingLogin == RoamingLogin::CAPABLE) {
                             LogInfoEx(LOG_MASTER, "PEER %u >> P25 Roaming [netId $%05X, sysId $%03X, rfssId $%02X]", peerId,
                                 peerRoaming.netId, peerRoaming.sysId, peerRoaming.rfssId);

@@ -71,9 +71,6 @@ namespace network
             m_isReplica(false),
             m_isConventional(false),
             m_p25RoamingCapable(false),
-            m_p25NetId(0U),
-            m_p25SysId(0U),
-            m_p25RfssId(0U),
             m_config(),
             m_peerLockMtx(),
             m_jitterBuffers(),
@@ -110,9 +107,6 @@ namespace network
             m_isReplica(false),
             m_isConventional(false),
             m_p25RoamingCapable(false),
-            m_p25NetId(0U),
-            m_p25SysId(0U),
-            m_p25RfssId(0U),
             m_config(),
             m_peerLockMtx(),
             m_jitterBuffers(),
@@ -289,18 +283,6 @@ namespace network
          * @brief Flag indicating P25 roaming was negotiated on this connection (spec 3.1).
          */
         DECLARE_PROPERTY_PLAIN(bool, p25RoamingCapable);
-        /**
-         * @brief P25 WACN ID the peer offered at login (0 when none was offered).
-         */
-        DECLARE_PROPERTY_PLAIN(uint32_t, p25NetId);
-        /**
-         * @brief P25 System ID the peer offered at login (0 when none was offered).
-         */
-        DECLARE_PROPERTY_PLAIN(uint32_t, p25SysId);
-        /**
-         * @brief P25 RFSS ID the peer offered at login (0 for a downstream FNE).
-         */
-        DECLARE_PROPERTY_PLAIN(uint8_t, p25RfssId);
 
         /**
          * @brief JSON objecting containing peer configuration information.
