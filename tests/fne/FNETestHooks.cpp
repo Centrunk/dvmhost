@@ -1202,9 +1202,7 @@ uint32_t FNETestHooks::findLocalUnitPeer(TrafficNetwork& network, uint32_t unitI
 
 uint32_t FNETestHooks::findSuidRoute(TrafficNetwork& network, const roaming::SUID& suid)
 {
-    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    return network.m_unitRouteRegistry.resolveSuid(suid, now).peerId;
+    return network.m_unitRouteRegistry.resolveSuid(suid).peerId;
 }
 
 /* Registers and affiliates a foreign SU behind a peer. */

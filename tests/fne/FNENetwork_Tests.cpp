@@ -1817,107 +1817,88 @@ TEST_CASE("FNE metadata dispatcher rejects truncated log transfers", "[fne][hook
     REQUIRE(FNETestHooks::peerState(harness.traffic, 1001U) == network::NET_STAT_RUNNING);
 }
 
-TEST_CASE("FNE unit route registry keys routes by SUID", "[fne][routing][registry][roaming]")
+TEST_CASE("FNE unit route registry keeps SUID routes apart from Unit ID routes", "[fne][routing][registry][roaming]")
 {
     network::UnitRouteRegistry registry(1000U);
-    registry.update(5U, 10U, 10U, false, 100U);
-
-    // existing routes keep resolving after the own identity is set (re-keyed)
-    registry.setOwnSystem(0xDEE00U, 0x13BU);
-    CHECK(registry.resolve(5U, 100U).peerId == 10U);
-    CHECK(registry.resolveSuid(network::roaming::SUID{ 0xDEE00U, 0x13BU, 5U }, 100U).peerId == 10U);
-
     registry.update(1001U, 10U, 10U, false, 100U);
-    const network::roaming::SUID home = { 0xDEE00U, 0x13BU, 1001U };
-    const network::roaming::SUID foreign = { 0xDEE00U, 0x911U, 1001U };
-    CHECK(registry.resolveSuid(home, 100U).peerId == 10U);
-    CHECK_FALSE(registry.resolveSuid(foreign, 100U).valid);
 
-    // the same Unit ID homed elsewhere is a different unit
-    REQUIRE(registry.updateSuid(foreign, 20U, 20U, false, 100U));
+    // the same Unit ID homed on another system is a different unit
+    const network::roaming::SUID foreign = { 0xDEE00U, 0x911U, 1001U };
+    CHECK_FALSE(registry.resolveSuid(foreign).valid);
+    REQUIRE(registry.updateSuid(foreign, 20U, 0U, 100U));
     CHECK(registry.resolve(1001U, 100U).peerId == 10U);
-    const network::UnitRoute route = registry.resolveSuid(foreign, 100U);
+    const network::UnitRoute route = registry.resolveSuid(foreign);
     CHECK(route.peerId == 20U);
+    CHECK(route.ssrc == 20U);
     CHECK(route.netId == 0xDEE00U);
     CHECK(route.sysId == 0x911U);
     CHECK(route.unitId == 1001U);
 
-    CHECK_FALSE(registry.updateSuid(network::roaming::SUID{ 0x100000U, 0x911U, 1U }, 20U, 20U, false, 100U));
+    CHECK_FALSE(registry.updateSuid(network::roaming::SUID{ 0x100000U, 0x911U, 1U }, 20U, 20U, 100U));
+    CHECK_FALSE(registry.updateSuid(foreign, 0U, 20U, 100U));
 
-    // a bare snapshot from a host never touches foreign routes
+    // a bare snapshot, bare erase and expiry never touch SUID routes
     registry.replacePeer(20U, std::vector<uint32_t>(), 20U, 200U);
-    CHECK(registry.resolveSuid(foreign, 200U).peerId == 20U);
+    CHECK_FALSE(registry.erase(1001U, 20U));
+    CHECK(registry.expire(5000U).empty());
+    CHECK(registry.resolveSuid(foreign).peerId == 20U);
 
     CHECK_FALSE(registry.eraseSuid(foreign, 10U));
     CHECK(registry.eraseSuid(foreign, 20U));
-    CHECK_FALSE(registry.resolveSuid(foreign, 200U).valid);
+    CHECK_FALSE(registry.resolveSuid(foreign).valid);
+    CHECK(registry.resolve(1001U, 300U).peerId == 10U);
 
-    REQUIRE(registry.updateSuid(foreign, 20U, 20U, false, 300U));
-    const std::vector<uint32_t> removed = registry.erasePeer(20U);
-    CHECK(removed.empty());
-    CHECK_FALSE(registry.resolveSuid(foreign, 300U).valid);
-
-    // erasePeer reports own-system Unit IDs (iteration order is unspecified)
-    std::vector<uint32_t> ownRemoved = registry.erasePeer(10U);
-    std::sort(ownRemoved.begin(), ownRemoved.end());
-    CHECK(ownRemoved == std::vector<uint32_t>({ 5U, 1001U }));
+    // erasePeer drops SUID routes but reports only Unit ID routes
+    REQUIRE(registry.updateSuid(foreign, 10U, 10U, 300U));
+    registry.update(5U, 10U, 10U, false, 300U);
+    std::vector<uint32_t> removed = registry.erasePeer(10U);
+    std::sort(removed.begin(), removed.end());
+    CHECK(removed == std::vector<uint32_t>({ 5U, 1001U }));
+    CHECK_FALSE(registry.resolveSuid(foreign).valid);
 }
 
-TEST_CASE("FNE unit route registry hides roaming routes from bare Unit ID lookups", "[fne][routing][registry][roaming]")
+TEST_CASE("FNE unit route registry never lets a roamed P25 route and a DMR or NXDN route collide", "[fne][routing][registry][roaming]")
 {
     network::UnitRouteRegistry registry(1000U);
-    registry.setOwnSystem(0xDEE00U, 0x911U);
     const network::roaming::SUID home = { 0xDEE00U, 0x911U, 1001U };
 
-    // a home unit served by another system is routed by SUID only (sub-project 3b)
-    REQUIRE(registry.updateRoaming(home, 20U, 100U));
-    network::UnitRoute route = registry.resolveSuid(home, 100U);
-    CHECK(route.peerId == 20U);
-    CHECK(route.roamed);
-    CHECK_FALSE(route.learned);
-    CHECK_FALSE(registry.resolve(1001U, 100U).valid);
+    // a DMR or NXDN registration of the unit number, then the P25 home unit with the same number roams away
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 100U));
+    REQUIRE(registry.updateSuid(home, 20U, 20U, 110U));
+    CHECK(registry.resolve(1001U, 110U).peerId == 10U);
+    CHECK_FALSE(registry.resolve(1001U, 110U).learned);
+    CHECK(registry.resolveSuid(home).peerId == 20U);
 
-    // traffic learning through the roaming link neither exposes nor replaces the roaming route
-    CHECK(registry.update(1001U, 20U, 20U, true, 150U));
-    CHECK_FALSE(registry.resolve(1001U, 150U).valid);
-    CHECK(registry.resolveSuid(home, 150U).roamed);
+    // traffic learning and re-registration for the unit number never replace the roamed route
+    CHECK(registry.update(1001U, 10U, 10U, true, 120U));
+    CHECK(registry.update(1001U, 11U, 11U, false, 130U));
+    CHECK(registry.resolve(1001U, 130U).peerId == 11U);
+    CHECK(registry.resolveSuid(home).peerId == 20U);
+    registry.replacePeer(11U, { 1001U, 1002U }, 11U, 140U);
+    CHECK(registry.resolveSuid(home).peerId == 20U);
 
-    // bare erase and bare snapshots manage registrations, never roaming routes
-    CHECK_FALSE(registry.erase(1001U, 20U));
-    registry.replacePeer(20U, std::vector<uint32_t>(), 20U, 200U);
-    CHECK(registry.resolveSuid(home, 200U).peerId == 20U);
-
-    // roaming routes never expire as learned routes do
-    CHECK(registry.expire(5000U).empty());
-    CHECK(registry.resolveSuid(home, 5000U).peerId == 20U);
-
-    // erasePeer drops it but does not report it as an own-system registration
-    CHECK(registry.erasePeer(20U).empty());
-    CHECK_FALSE(registry.resolveSuid(home, 5000U).valid);
-
-    // a local (bare) registration replaces the roaming route and is visible again
-    REQUIRE(registry.updateRoaming(home, 20U, 6000U));
-    REQUIRE(registry.update(1001U, 10U, 10U, false, 6100U));
-    route = registry.resolve(1001U, 6100U);
-    CHECK(route.peerId == 10U);
-    CHECK_FALSE(route.roamed);
-    CHECK_FALSE(registry.eraseSuid(home, 20U));
-    CHECK(registry.resolveSuid(home, 6100U).peerId == 10U);
-
-    // eraseSuid removes a roaming route owned by its link
-    REQUIRE(registry.updateRoaming(home, 20U, 6200U));
+    // tearing down either side leaves the other
+    CHECK(registry.erase(1001U, 11U));
+    CHECK(registry.resolveSuid(home).peerId == 20U);
     CHECK(registry.eraseSuid(home, 20U));
-    CHECK_FALSE(registry.resolveSuid(home, 6200U).valid);
+    CHECK(registry.resolve(1002U, 150U).peerId == 11U);
 
-    CHECK_FALSE(registry.updateRoaming(network::roaming::SUID{ 0x100000U, 0x911U, 1U }, 20U, 100U));
-    CHECK_FALSE(registry.updateRoaming(home, 0U, 100U));
+    // roamed route first, then the registration; tear the roamed route down first this time
+    REQUIRE(registry.updateSuid(home, 20U, 20U, 200U));
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 210U));
+    CHECK(registry.eraseSuid(home, 20U));
+    CHECK(registry.resolve(1001U, 220U).peerId == 10U);
+
+    // a peer going away removes only its own routes of either kind
+    REQUIRE(registry.updateSuid(home, 20U, 20U, 300U));
+    CHECK(registry.erasePeer(20U).empty());
+    CHECK_FALSE(registry.resolveSuid(home).valid);
+    CHECK(registry.resolve(1001U, 300U).peerId == 10U);
 }
 
 TEST_CASE("FNE unit route registry records whether the explicit registration was P25-tagged", "[fne][routing][registry][roaming]")
 {
     network::UnitRouteRegistry registry(1000U);
-    registry.setOwnSystem(0xDEE00U, 0x911U);
-    const network::roaming::SUID home = { 0xDEE00U, 0x911U, 1001U };
 
     // the default is an untagged registration (DMR, NXDN or an older host)
     REQUIRE(registry.update(1001U, 10U, 10U, false, 100U));
@@ -1953,47 +1934,22 @@ TEST_CASE("FNE unit route registry records whether the explicit registration was
     CHECK(route.peerId == 12U);
     CHECK_FALSE(route.p25Registered);
 
-    // a roaming route replaces a tagged registration and is never tagged
+    // a roaming route is kept apart and leaves the tagged registration in place
     REQUIRE(registry.update(1001U, 10U, 10U, false, 180U, true));
-    REQUIRE(registry.updateRoaming(home, 20U, 190U));
-    CHECK_FALSE(registry.resolveSuid(home, 190U).p25Registered);
+    REQUIRE(registry.updateSuid(network::roaming::SUID{ 0xDEE00U, 0x911U, 1001U }, 20U, 20U, 190U));
+    CHECK(registry.resolve(1001U, 190U).p25Registered);
+    CHECK(registry.resolve(1001U, 190U).peerId == 10U);
 }
 
-TEST_CASE("FNE unit route registry without a P25 identity keys bare Unit IDs under zero WACN and System ID",
-    "[fne][routing][registry][roaming]")
-{
-    network::UnitRouteRegistry registry(1000U);
-    REQUIRE(registry.update(2001U, 10U, 10U, false, 100U));
-
-    // a zero identity is the unconfigured own system; setting it again changes nothing
-    registry.setOwnSystem(0U, 0U);
-    const network::UnitRoute route = registry.resolve(2001U, 100U);
-    CHECK(route.peerId == 10U);
-    CHECK(route.netId == 0U);
-    CHECK(route.sysId == 0U);
-    CHECK(registry.resolveSuid(network::roaming::SUID{ 0U, 0U, 2001U }, 100U).peerId == 10U);
-
-    // clearing the identity again re-keys own routes back
-    registry.setOwnSystem(0xDEE00U, 0x13BU);
-    CHECK(registry.resolve(2001U, 100U).peerId == 10U);
-    registry.setOwnSystem(0U, 0U);
-    CHECK(registry.resolve(2001U, 100U).peerId == 10U);
-    CHECK(registry.erase(2001U, 10U));
-    CHECK_FALSE(registry.resolve(2001U, 100U).valid);
-}
-
-TEST_CASE("FNE unit route registry does not alias Unit IDs wider than 24 bits",
+TEST_CASE("FNE unit route registry rejects SUIDs wider than 24 bits",
     "[fne][routing][registry][roaming]")
 {
     network::UnitRouteRegistry registry(1000U);
     REQUIRE(registry.update(1U, 10U, 10U, false, 100U));
 
     // SUID::pack() masks silently, so out-of-range IDs must never reach it
-    CHECK_FALSE(registry.update(0x1000001U, 20U, 20U, false, 100U));
-    CHECK_FALSE(registry.resolve(0x1000001U, 100U).valid);
-    CHECK_FALSE(registry.erase(0x1000001U, 10U));
-    CHECK_FALSE(registry.updateSuid(network::roaming::SUID{ 0U, 0U, 0x1000001U }, 20U, 20U, false, 100U));
-    CHECK_FALSE(registry.resolveSuid(network::roaming::SUID{ 0U, 0U, 0x1000001U }, 100U).valid);
+    CHECK_FALSE(registry.updateSuid(network::roaming::SUID{ 0U, 0U, 0x1000001U }, 20U, 20U, 100U));
+    CHECK_FALSE(registry.resolveSuid(network::roaming::SUID{ 0U, 0U, 0x1000001U }).valid);
     CHECK_FALSE(registry.eraseSuid(network::roaming::SUID{ 0U, 0U, 0x1000001U }, 10U));
     CHECK(registry.resolve(1U, 100U).peerId == 10U);
 }

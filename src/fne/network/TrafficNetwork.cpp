@@ -269,9 +269,6 @@ void TrafficNetwork::setP25RoamingConfig(const RoamingConfig& config)
 {
     m_roamingConfig = config;
 
-    // local radios are keyed as (own WACN ID, own System ID, Unit ID) (spec 2.6)
-    m_unitRouteRegistry.setOwnSystem(config.enabled() ? config.netId() : 0U, config.enabled() ? config.sysId() : 0U);
-
     // a zero identity disables the mobility service
     m_roaming->setIdentity(config.netId(), config.sysId(), config.expires());
 }
@@ -2016,7 +2013,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
 
             if (subFunc == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID) {
                 m_suidRegistrations.registerUnit(entry.suid, peerId);
-                m_unitRouteRegistry.updateSuid(entry.suid, peerId, ssrc, false, now);
+                m_unitRouteRegistry.updateSuid(entry.suid, peerId, ssrc, now);
             }
             else if (subFunc == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG_SUID) {
                 if (m_suidRegistrations.deregisterUnit(entry.suid, peerId)) {
@@ -2059,7 +2056,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
             }
 
             for (const roaming::SUID& suid : regs) {
-                m_unitRouteRegistry.updateSuid(suid, peerId, ssrc, false, now);
+                m_unitRouteRegistry.updateSuid(suid, peerId, ssrc, now);
             }
             return true;
         }
@@ -2464,8 +2461,8 @@ void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid,
     }
 
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    // a roaming route is SUID-only: bare Unit ID consumers keep their pre-roaming behaviour for the unit (spec 2.6)
-    m_network->m_unitRouteRegistry.updateRoaming(suid, link.peerId, now);
+    // a roaming route is SUID-only: it never touches the Unit ID routes of a DMR/NXDN radio sharing the unit number
+    m_network->m_unitRouteRegistry.updateSuid(suid, link.peerId, link.peerId, now);
 }
 
 /* Removes the SUID route when it uses the link. */

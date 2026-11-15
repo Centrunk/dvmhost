@@ -686,7 +686,7 @@ TEST_CASE("FNE keeps a roamed home unit's route SUID-only so bare Unit ID lookup
     FNETestHooks::registerP25Unit(harness.traffic, 501U, 0x0F4240U);
     CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, 0x0F4240U) == 501U);
     CHECK(FNETestHooks::isUnitRouteAvailable(harness.traffic, 0x0F4240U));
-    CHECK(FNETestHooks::findSuidRoute(harness.traffic, home) == 501U);
+    CHECK(FNETestHooks::findSuidRoute(harness.traffic, home) == 0U);
     CHECK(harness.traffic.roaming()->homeRecords().empty());
 }
 
