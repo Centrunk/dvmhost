@@ -1157,6 +1157,17 @@ TEST_CASE("Network handles a 1-byte config ack and an out-of-range master identi
     CHECK_FALSE(network.isP25RoamingActive());
     CHECK(network.getMasterP25SysId() == 0U);
 
+    // bit 6 with a zero WACN ID or a zero System ID names no master system: roaming stays off
+    sendConfigAck({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0xC0U, 0x00U, 0x00U, 0x00U, 0x01U, 0x3BU });
+    CHECK(network.getStatusForTest() == NET_STAT_RUNNING);
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK(network.getMasterP25NetId() == 0U);
+    CHECK(network.getMasterP25SysId() == 0U);
+    sendConfigAck({ 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0xC0U, 0x0DU, 0xEEU, 0x00U, 0x00U, 0x00U });
+    CHECK_FALSE(network.isP25RoamingActive());
+    CHECK(network.getMasterP25NetId() == 0U);
+    CHECK(network.getMasterP25SysId() == 0U);
+
     masterReceiver.close();
 }
 
