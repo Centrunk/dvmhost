@@ -812,8 +812,8 @@ FNE with no route toward a home sends nothing to the requesting host (the host's
 0x22. Confirmed and Serving queries are answered ROAM_QUERY_RSP with 0x1C.
 
 `NET_FUNC::GRANT_REQ` bytes 4-6 and 7-8 carry the source radio's home WACN ID and System ID; zero
-means the receiver's own system, and hosts currently send zero because roamer voice stays denied
-until sub-projects 3c and 3d. The P25 traffic header's netId (bytes 16-18) and sysId (bytes 11-12)
+means the receiver's own system, and hosts currently send zero because roamer voice from other
+systems is not yet supported. The P25 traffic header's netId (bytes 16-18) and sysId (bytes 11-12)
 are the source radio's home WACN ID and System ID; zero means the receiver's own system, so local
 radio traffic is unchanged.
 

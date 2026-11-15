@@ -134,14 +134,14 @@ triggers the release. The registration at the serving system then ends when it e
 the serving site deregisters the unit.
 
 The FNE records no unit route for registrations that arrive over an upstream link (upstream routing
-is sub-project 3d); the registration itself is still authorized and tracked.
+is not yet supported); the registration itself is still authorized and tracked.
 
 The route the home records for one of its own units served by another system is kept by full SUID
 only. Bare Unit ID lookups ignore it: REST and subscriber operation targets (inhibit, check, page,
 message), unit-to-unit availability and routing, and unknown-destination flooding treat the unit exactly
 as before roaming, so a bare-ID command is never sent to the foreign system, where the same Unit ID may
 belong to a different radio. A local registration of the unit replaces the roaming route with the normal
-bare route. Routing to a unit served by another system is sub-project 3d.
+bare route. Routing to a unit served by another system is not yet supported.
 
 The FNE REST API lists the home location table (`GET /p25/roaming/locations`) and served roamers
 (`GET /p25/roaming/served`) and starts a Forced query (`PUT /p25/roaming/query`, body `netId`,
@@ -175,8 +175,8 @@ without user action.
 
 ## Current limitations
 
-Roaming SUs are authorized by their home system but are still served locally only until group and
-unit-to-unit mobility (sub-projects 3c and 3d) exist:
+Roaming SUs are authorized by their home system but are still served locally only; group and
+unit-to-unit mobility across systems is not yet supported:
 
 - Group affiliation, location registration, and de-registration are processed locally. A roamer
   registered through its home is announced to the FNE by SUID (group affiliations name the local
