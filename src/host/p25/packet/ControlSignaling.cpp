@@ -4117,6 +4117,11 @@ uint32_t ControlSignaling::acceptRoamingSU(const lookups::P25WuidLookup::SUID& s
 
     // the home reports the radio inhibited: accept, then inhibit the WUID (TIA-102.AABD-B 13.3)
     if (profile.inhibited) {
+        if (m_verbose) {
+            LogInfoEx(LOG_RF, P25_TSDU_STR ", roaming SU inhibited by its home, suid = $%05X.$%03X.$%06X, wuid = %u",
+                suid.netId, suid.sysId, suid.unitId, wuid);
+        }
+
         writeRF_TSDU_Ext_Func(ExtendedFunctions::INHIBIT, WUID_FNE, wuid, true);
     }
 

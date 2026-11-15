@@ -2814,6 +2814,11 @@ bool Control::processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_
 
     // Non-Roamed (policy removal) commands the SU to re-register; Roamed sends nothing on air
     if (qualifier == network::roaming::RoamQualifier::NON_ROAMED && m_enableControl) {
+        if (m_verbose) {
+            LogInfoEx(LOG_P25, "roaming home deregistration, suid = $%05X.$%03X.$%06X, wuid = %u, commanding re-registration",
+                suid.netId, suid.sysId, suid.unitId, wuid);
+        }
+
         m_control->writeRF_TSDU_U_Reg_Cmd(wuid, true);
     }
 
@@ -2830,6 +2835,11 @@ bool Control::processRoamingRegCmd(const network::roaming::SUID& suid)
     uint32_t wuid = 0U;
     if (!resolveNetworkTarget(suid, wuid) || !m_wuidLookup->isPoolWuid(wuid) || !m_enableControl) {
         return false;
+    }
+
+    if (m_verbose) {
+        LogInfoEx(LOG_P25, "roaming home registration command, suid = $%05X.$%03X.$%06X, wuid = %u",
+            suid.netId, suid.sysId, suid.unitId, wuid);
     }
 
     m_control->writeRF_TSDU_U_Reg_Cmd(wuid, true);
