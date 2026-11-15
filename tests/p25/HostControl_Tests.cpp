@@ -622,12 +622,23 @@ public:
 
     /** @brief Marks the test network as ready to accept outbound frames. */
     void activateForTest() { m_status = network::NET_STAT_RUNNING; }
+
+    /**
+     * @brief Checks whether the roaming identity would be offered in the RPTC configuration.
+     * @returns bool True if the configuration carries the P25 roaming object; otherwise, false.
+     */
     bool offersRoamingIdentity() const
     {
         json::object config;
         appendP25RoamingConfig(config);
         return config.find("p25Roaming") != config.end();
     }
+
+    /**
+     * @brief Checks whether the P25 roaming message callback is installed.
+     * @returns bool True if a callback is installed; otherwise, false.
+     */
+    bool hasRoamingCallback() const { return static_cast<bool>(m_p25RoamingCallback); }
 
     /** @brief Gets the next outbound packet sequence value. */
     uint16_t outboundSequence() const { return m_pktSeq; }
@@ -2667,17 +2678,21 @@ TEST_CASE("P25 host offers the roaming identity to the FNE only when roaming is 
     SECTION("Valid_Configuration_Offers_Identity") {
         REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000000U, 9000010U));
         CHECK(harness.network()->offersRoamingIdentity());
+        CHECK(harness.network()->hasRoamingCallback());
     }
 
     SECTION("Rejected_Configuration_Does_Not_Offer_Identity") {
         CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000010U, 9000000U));
         CHECK_FALSE(harness.network()->offersRoamingIdentity());
+        CHECK_FALSE(harness.network()->hasRoamingCallback());
     }
 
     SECTION("Disabled_Roaming_Withdraws_Identity") {
         REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000000U, 9000010U));
+        REQUIRE(harness.network()->hasRoamingCallback());
         REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, false, {}, 0U, 0U));
         CHECK_FALSE(harness.network()->offersRoamingIdentity());
+        CHECK_FALSE(harness.network()->hasRoamingCallback());
     }
 
     p25::lc::TSBK::setSiteData(previous);
