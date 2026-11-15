@@ -481,7 +481,7 @@ uint32_t RoamingCodec::encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bo
         return 1U;
     }
 
-    if (payloadLen < CONFIG_ACK_ROAMING_LEN || !SUID::validSystem(netId, sysId)) {
+    if (payloadLen < CONFIG_ACK_ROAMING_LEN || netId == 0U || sysId == 0U || !SUID::validSystem(netId, sysId)) {
         return 0U;
     }
 
@@ -510,7 +510,7 @@ bool RoamingCodec::decodeConfigAck(const uint8_t* payload, uint32_t length, bool
 
     const uint32_t masterNetId = GET_UINT24(payload, 1U);
     const uint32_t masterSysId = GET_UINT16(payload, 4U);
-    if (!SUID::validSystem(masterNetId, masterSysId)) {
+    if (masterNetId == 0U || masterSysId == 0U || !SUID::validSystem(masterNetId, masterSysId)) {
         return false;
     }
 

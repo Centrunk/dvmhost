@@ -588,6 +588,25 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
         const uint8_t badWacn[6U] = { 0xC0U, 0x10U, 0x00U, 0x00U, 0x01U, 0x3BU };
         CHECK_FALSE(RoamingCodec::decodeConfigAck(badWacn, sizeof(badWacn), capable, netId, sysId));
         CHECK_FALSE(RoamingCodec::decodeConfigAck(extended, 0U, capable, netId, sysId));
+
+        // a zero WACN ID or System ID is rejected, as parseConfig does, and the outputs are left untouched
+        capable = false;
+        netId = 0xAAAAAU;
+        sysId = 0x555U;
+        const uint8_t zeroWacn[6U] = { 0xC0U, 0x00U, 0x00U, 0x00U, 0x01U, 0x3BU };
+        CHECK_FALSE(RoamingCodec::decodeConfigAck(zeroWacn, sizeof(zeroWacn), capable, netId, sysId));
+        const uint8_t zeroSysId[6U] = { 0xC0U, 0x0DU, 0xEEU, 0x00U, 0x00U, 0x00U };
+        CHECK_FALSE(RoamingCodec::decodeConfigAck(zeroSysId, sizeof(zeroSysId), capable, netId, sysId));
+        CHECK_FALSE(capable);
+        CHECK(netId == 0xAAAAAU);
+        CHECK(sysId == 0x555U);
+
+        ::memset(payload, 0x5AU, sizeof(payload));
+        CHECK(RoamingCodec::encodeConfigAck(payload, sizeof(payload), true, 0U, 0x13BU) == 0U);
+        CHECK(RoamingCodec::encodeConfigAck(payload, sizeof(payload), true, 0xDEE00U, 0U) == 0U);
+        for (uint32_t i = 0U; i < sizeof(payload); i++) {
+            CHECK(payload[i] == 0x5AU);
+        }
     }
 
     SECTION("Grant_Request_Source_System") {
