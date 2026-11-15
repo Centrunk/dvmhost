@@ -471,15 +471,6 @@ bool RoamingService::linkCapableLocked(const RoamingLink& link) const
     return it != m_links.end() && it->second.capable;
 }
 
-/* Policy check: may this serving system serve the SU? */
-
-bool RoamingService::isServingPermitted(const RfssIdentity& serving, const RoamingLink& ingress) const
-{
-    (void)serving;
-    (void)ingress;
-    return true;
-}
-
 /* Chooses a new upstream default among capable upstream links. */
 
 void RoamingService::selectUpstreamDefault()
@@ -619,13 +610,6 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
         LogWarning(LOG_MASTER, "P25 ROAMING, Serving Registration denied, home unit not in the RID ACL or disabled, suid = $%05X.$%03X.$%06X, txnId = %08X",
             msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
         queueReply(actions, ingress, msg, RoamResult::MME_SU_UNKNOWN);
-        return;
-    }
-
-    if (!isServingPermitted(msg.serving, ingress)) {
-        LogWarning(LOG_MASTER, "P25 ROAMING, Serving Registration denied, serving system not permitted, suid = $%05X.$%03X.$%06X, serving = $%05X.$%03X",
-            msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.serving.netId, msg.serving.sysId);
-        queueReply(actions, ingress, msg, RoamResult::MME_SU_REG_DISALLOWED);
         return;
     }
 

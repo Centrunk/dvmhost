@@ -315,14 +315,6 @@ namespace network
          */
         bool linkCapableLocked(const RoamingLink& link) const;
         /**
-         * @brief Policy check: may this serving system serve the SU (BACA 2.1.3.1.1)? Every roaming-capable peer
-         *  system is permitted in sub-project 3b; later policy restricts it here.
-         * @param serving Serving RFSS identity.
-         * @param ingress Link the request arrived on.
-         * @returns bool True if permitted; otherwise, false.
-         */
-        bool isServingPermitted(const roaming::RfssIdentity& serving, const RoamingLink& ingress) const;
-        /**
          * @brief Chooses a new upstream default among capable upstream links (caller holds m_mutex).
          */
         void selectUpstreamDefault();
