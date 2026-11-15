@@ -2882,6 +2882,20 @@ TEST_CASE("P25 roaming unit services before identity translation", "[p25][host][
         CHECK(harness.network()->tsduWriteCount() == tsduBefore);
     }
 
+    SECTION("Radio_Monitor_Request_Denied_Unsupported") {
+        // an inbound IOSP_RAD_MON is a request, so it is denied like the other unit-addressed services
+        ::memset(raw, 0x00U, sizeof(raw));
+        raw[0U] = 0x80U | p25::defines::TSBKO::IOSP_RAD_MON;
+        raw[1U] = p25::defines::MFG_STANDARD;
+        SET_UINT24(1002U, raw, 4U);
+        SET_UINT24(9000000U, raw, 7U);
+        edac::CRC::addCCITT162(raw, p25::defines::P25_TSBK_LENGTH_BYTES);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::OSP_DENY_RSP, rsp, pduSeen));
+        CHECK(rsp[3U] == p25::defines::ReasonCode::DENY_SYS_UNSUPPORTED_SVC);
+        CHECK(harness.network()->tsduWriteCount() == tsduBefore);
+    }
+
     SECTION("Emergency_Alarm_Acknowledged_Not_Forwarded") {
         buildEmergencyAlarmRequest(9000000U, 2001U, 0x00U, 0x00U, raw);
         HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);

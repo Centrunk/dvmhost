@@ -1777,7 +1777,6 @@ bool ControlSignaling::processRoamingUnit(lc::TSBK* tsbk, uint32_t srcId, uint32
     case TSBKO::ISP_STS_Q_RSP:
     case TSBKO::ISP_GRP_AFF_Q_RSP:
     case TSBKO::ISP_AUTH_RESP:
-    case TSBKO::IOSP_RAD_MON:
         if (m_verbose) {
             LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming unit response ignored, srcId = %u", tsbk->toString(true).c_str(), srcId);
         }
