@@ -2815,7 +2815,7 @@ bool Control::processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_
 
     // Non-Roamed (policy removal) commands the SU to re-register; Roamed sends nothing on air (spec 4.4)
     if (qualifier == network::roaming::RoamQualifier::NON_ROAMED && m_enableControl) {
-        m_control->writeRF_TSDU_U_Reg_Cmd_Roaming(wuid);
+        m_control->writeRF_TSDU_U_Reg_Cmd(wuid, true);
     }
 
     // roamer services are denied until sub-projects 3c-3e, so no session of the SU exists to tear down; the
@@ -2833,7 +2833,7 @@ bool Control::processRoamingRegCmd(const network::roaming::SUID& suid)
         return false;
     }
 
-    m_control->writeRF_TSDU_U_Reg_Cmd_Roaming(wuid);
+    m_control->writeRF_TSDU_U_Reg_Cmd(wuid, true);
     return true;
 }
 

@@ -1620,24 +1620,27 @@ void ControlSignaling::writeRF_TSDU_Radio_Mon(uint32_t srcId, uint32_t dstId, ui
 
 /* Helper to write a extended function packet. */
 
-void ControlSignaling::writeRF_TSDU_Ext_Func(uint32_t func, uint32_t arg, uint32_t dstId)
+void ControlSignaling::writeRF_TSDU_Ext_Func(uint32_t func, uint32_t arg, uint32_t dstId, bool standardMFId)
 {
     std::unique_ptr<IOSP_EXT_FNCT> iosp = std::make_unique<IOSP_EXT_FNCT>();
     iosp->setExtendedFunction(func);
     iosp->setSrcId(arg);
     iosp->setDstId(dstId);
 
-    const bool retainedMFId = hasMFIdTransaction(arg, dstId, TSBKO::IOSP_EXT_FNCT);
-    const uint8_t mfId = transactionMFId(arg, dstId, TSBKO::IOSP_EXT_FNCT, m_lastMFID);
-    if (mfId != MFG_STANDARD) {
-        iosp->setMFId(mfId);
-        if (!retainedMFId)
-            m_lastMFID = MFG_STANDARD;
-    }
+    // a standard MFID request neither reads nor resets m_lastMFID
+    if (!standardMFId) {
+        const bool retainedMFId = hasMFIdTransaction(arg, dstId, TSBKO::IOSP_EXT_FNCT);
+        const uint8_t mfId = transactionMFId(arg, dstId, TSBKO::IOSP_EXT_FNCT, m_lastMFID);
+        if (mfId != MFG_STANDARD) {
+            iosp->setMFId(mfId);
+            if (!retainedMFId)
+                m_lastMFID = MFG_STANDARD;
+        }
 
-    // class $02 is Motorola -- set the MFID properly
-    if ((func >> 8) == 0x02U) {
-        iosp->setMFId(MFG_MOT);
+        // class $02 is Motorola -- set the MFID properly
+        if ((func >> 8) == 0x02U) {
+            iosp->setMFId(MFG_MOT);
+        }
     }
 
     if (m_verbose) {
@@ -1717,18 +1720,21 @@ void ControlSignaling::writeRF_TSDU_Grp_Aff_Q_Once(uint32_t dstId)
 
 /* Helper to write a unit registration command packet. */
 
-void ControlSignaling::writeRF_TSDU_U_Reg_Cmd(uint32_t dstId)
+void ControlSignaling::writeRF_TSDU_U_Reg_Cmd(uint32_t dstId, bool standardMFId)
 {
     std::unique_ptr<OSP_U_REG_CMD> osp = std::make_unique<OSP_U_REG_CMD>();
     osp->setSrcId(WUID_FNE);
     osp->setDstId(dstId);
 
-    const bool retainedMFId = hasMFIdTransaction(WUID_FNE, dstId, TSBKO::OSP_U_REG_CMD);
-    const uint8_t mfId = transactionMFId(WUID_FNE, dstId, TSBKO::OSP_U_REG_CMD, m_lastMFID);
-    if (mfId != MFG_STANDARD) {
-        osp->setMFId(mfId);
-        if (!retainedMFId)
-            m_lastMFID = MFG_STANDARD;
+    // a standard MFID command neither reads nor resets m_lastMFID
+    if (!standardMFId) {
+        const bool retainedMFId = hasMFIdTransaction(WUID_FNE, dstId, TSBKO::OSP_U_REG_CMD);
+        const uint8_t mfId = transactionMFId(WUID_FNE, dstId, TSBKO::OSP_U_REG_CMD, m_lastMFID);
+        if (mfId != MFG_STANDARD) {
+            osp->setMFId(mfId);
+            if (!retainedMFId)
+                m_lastMFID = MFG_STANDARD;
+        }
     }
 
     VERBOSE_LOG_TSBK_DST(osp->toString(), dstId);
@@ -4024,23 +4030,6 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp_Roaming(const lookups::P25WuidLook
     writeRF_TSDU_SBF_Imm(iosp.get(), true);
 }
 
-/* Writes a U_REG_CMD to a roamer's WUID on behalf of its home. */
-
-void ControlSignaling::writeRF_TSDU_U_Reg_Cmd_Roaming(uint32_t wuid)
-{
-    // driven by a home request on the thread that processes the network, so m_lastMFID (owned by the RF
-    //  reader) belongs to an unrelated TSBK; the command always uses the standard MFID
-    std::unique_ptr<OSP_U_REG_CMD> osp = std::make_unique<OSP_U_REG_CMD>();
-    osp->setMFId(MFG_STANDARD);
-    osp->setSrcId(WUID_FNE);
-    osp->setDstId(wuid);
-
-    VERBOSE_LOG_TSBK_DST(osp->toString(), wuid);
-    ::ActivityLogEx(LOG_P25, true, "unit registration command from %u to %u, roaming", WUID_FNE, wuid);
-
-    writeRF_TSDU_SBF_Imm(osp.get(), true);
-}
-
 /* Applies a Serving Registration outcome on air. */
 
 bool ControlSignaling::processRoamingOutcome(const network::roaming::SUID& roamSuid, lookups::P25RoamingClient::Outcome outcome,
@@ -4128,22 +4117,9 @@ uint32_t ControlSignaling::acceptRoamingSU(const lookups::P25WuidLookup::SUID& s
             suid.netId, suid.sysId, suid.unitId, wuid);
     }
 
-    // the home reports the radio inhibited: accept, then inhibit the WUID (TIA-102.AABD-B 13.3); built here rather
-    //  than by writeRF_TSDU_Ext_Func() so that neither reads nor resets m_lastMFID
+    // the home reports the radio inhibited: accept, then inhibit the WUID (TIA-102.AABD-B 13.3)
     if (profile.inhibited) {
-        std::unique_ptr<IOSP_EXT_FNCT> iosp = std::make_unique<IOSP_EXT_FNCT>();
-        iosp->setMFId(MFG_STANDARD);
-        iosp->setExtendedFunction(ExtendedFunctions::INHIBIT);
-        iosp->setSrcId(WUID_FNE);
-        iosp->setDstId(wuid);
-
-        if (m_verbose) {
-            LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, roaming SU inhibited by its home, netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u",
-                iosp->toString().c_str(), suid.netId, suid.sysId, suid.unitId, wuid);
-        }
-
-        ::ActivityLogEx(LOG_P25, true, "radio inhibit request from %u to %u", WUID_FNE, wuid);
-        writeRF_TSDU_SBF_Imm(iosp.get(), true);
+        writeRF_TSDU_Ext_Func(ExtendedFunctions::INHIBIT, WUID_FNE, wuid, true);
     }
 
     // a roamer appears on the network only by its SUID (spec 5)
