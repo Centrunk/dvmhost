@@ -2671,6 +2671,9 @@ bool Control::configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, 
     m_allowRoaming = false;
     m_roamingSysIds.clear();
     m_wuidLookup->clear();
+    if (m_network != nullptr) {
+        m_network->setP25RoamingIdentity(0U, 0U, 0U);
+    }
 
     if (!allow) {
         return true;
@@ -2722,6 +2725,13 @@ bool Control::configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, 
     m_wuidLookup->setPool(wuidStart, wuidEnd);
     m_roamingSysIds = sysIds;
     m_allowRoaming = true;
+
+    // offer this site's identity to the FNE only when roaming is in effect, so conventional, DVRS and
+    //  voice channel hosts sharing the FNE are never subject to the identity check
+    if (m_network != nullptr) {
+        m_network->setP25RoamingIdentity(m_siteData.netId(), m_siteData.sysId(), m_siteData.rfssId());
+    }
+
     return true;
 }
 

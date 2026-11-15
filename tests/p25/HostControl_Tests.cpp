@@ -622,6 +622,12 @@ public:
 
     /** @brief Marks the test network as ready to accept outbound frames. */
     void activateForTest() { m_status = network::NET_STAT_RUNNING; }
+    bool offersRoamingIdentity() const
+    {
+        json::object config;
+        appendP25RoamingConfig(config);
+        return config.find("p25Roaming") != config.end();
+    }
 
     /** @brief Gets the next outbound packet sequence value. */
     uint16_t outboundSequence() const { return m_pktSeq; }
@@ -2645,6 +2651,34 @@ TEST_CASE("P25 roaming configuration rejects invalid settings", "[p25][host][roa
     CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
     CHECK(HostTestHooks::p25ConfigureRoaming(*harness.m_control, false, {}, 0U, 0U));
     CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 host offers the roaming identity to the FNE only when roaming is in effect", "[p25][host][roaming][config]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort);
+    HostTestHooks::p25SetSiteData(*harness.m_control, p25::SiteData(0xBB800U, 0x001U, 1U, 1U, 1U, 1U, 1U, 0x00U, 0));
+    CHECK_FALSE(harness.network()->offersRoamingIdentity());
+
+    SECTION("Valid_Configuration_Offers_Identity") {
+        REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000000U, 9000010U));
+        CHECK(harness.network()->offersRoamingIdentity());
+    }
+
+    SECTION("Rejected_Configuration_Does_Not_Offer_Identity") {
+        CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000010U, 9000000U));
+        CHECK_FALSE(harness.network()->offersRoamingIdentity());
+    }
+
+    SECTION("Disabled_Roaming_Withdraws_Identity") {
+        REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 9000000U, 9000010U));
+        REQUIRE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, false, {}, 0U, 0U));
+        CHECK_FALSE(harness.network()->offersRoamingIdentity());
+    }
 
     p25::lc::TSBK::setSiteData(previous);
 }
