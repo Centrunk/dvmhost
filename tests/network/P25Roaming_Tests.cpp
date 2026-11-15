@@ -83,6 +83,13 @@ TEST_CASE("P25 roaming identity helpers", "[network][roaming][suid]")
         CHECK_FALSE(SUID::validSystem(0x100000U, 0x001U));
         CHECK_FALSE(SUID::validSystem(0x00001U, 0x1000U));
 
+        CHECK(SUID::validIdentity(0xDEE00U, 0x911U));
+        CHECK(SUID::validIdentity(0xFFFFFU, 0xFFFU));
+        CHECK_FALSE(SUID::validIdentity(0U, 0x911U));
+        CHECK_FALSE(SUID::validIdentity(0xDEE00U, 0U));
+        CHECK_FALSE(SUID::validIdentity(0x100000U, 0x001U));
+        CHECK_FALSE(SUID::validIdentity(0x00001U, 0x1000U));
+
         CHECK(SUID{ 0xDEE00U, 0x911U, 0xFFFFFFU }.valid());
         CHECK_FALSE(SUID{ 0xDEE00U, 0x911U, 0x1000000U }.valid());
         CHECK_FALSE(SUID{ 0x100000U, 0x911U, 1U }.valid());

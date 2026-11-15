@@ -240,7 +240,7 @@ void Network::setRadioAliasLookups(lookups::RadioAliasLookup* ridAliasLookup)
 
 void Network::setP25RoamingIdentity(uint32_t netId, uint32_t sysId, uint8_t rfssId)
 {
-    m_p25RoamingConfigured = (netId != 0U && sysId != 0U && roaming::SUID::validSystem(netId, sysId));
+    m_p25RoamingConfigured = roaming::SUID::validIdentity(netId, sysId);
     m_p25RoamingNetId = m_p25RoamingConfigured ? netId : 0U;
     m_p25RoamingSysId = m_p25RoamingConfigured ? sysId : 0U;
     m_p25RoamingRfssId = m_p25RoamingConfigured ? rfssId : 0U;

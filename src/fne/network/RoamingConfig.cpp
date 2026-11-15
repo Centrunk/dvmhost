@@ -88,7 +88,7 @@ bool RoamingConfig::set(uint32_t netId, uint32_t sysId, uint32_t expires)
     m_sysId = 0U;
     m_expires = expires;
 
-    if (netId == 0U || sysId == 0U || !SUID::validSystem(netId, sysId) || expires <= ROAM_MIN_EXPIRES ||
+    if (!SUID::validIdentity(netId, sysId) || expires <= ROAM_MIN_EXPIRES ||
         (netId >= ROAM_WACN_PROTECTED_START && netId <= ROAM_WACN_PROTECTED_END)) {
         return false;
     }

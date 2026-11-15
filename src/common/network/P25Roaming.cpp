@@ -62,6 +62,13 @@ bool SUID::validSystem(uint32_t netId, uint32_t sysId)
     return netId <= ROAM_MAX_WACN && sysId <= ROAM_MAX_SYSID;
 }
 
+/* Checks that a WACN ID and System ID are both assigned and within range. */
+
+bool SUID::validIdentity(uint32_t netId, uint32_t sysId)
+{
+    return netId != 0U && sysId != 0U && validSystem(netId, sysId);
+}
+
 /* Packs a WACN ID and System ID into a 32-bit system table key. */
 
 uint32_t SUID::systemKey(uint32_t netId, uint32_t sysId)
@@ -458,7 +465,7 @@ bool RoamingCodec::parseConfig(const json::object& config, RoamingPeerConfig& pe
         return false;
     }
 
-    if (netId == 0U || sysId == 0U || !SUID::validSystem(netId, sysId) || rfssId > 0xFFU) {
+    if (!SUID::validIdentity(netId, sysId) || rfssId > 0xFFU) {
         return false;
     }
 
@@ -481,7 +488,7 @@ uint32_t RoamingCodec::encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bo
         return 1U;
     }
 
-    if (payloadLen < CONFIG_ACK_ROAMING_LEN || netId == 0U || sysId == 0U || !SUID::validSystem(netId, sysId)) {
+    if (payloadLen < CONFIG_ACK_ROAMING_LEN || !SUID::validIdentity(netId, sysId)) {
         return 0U;
     }
 
@@ -510,7 +517,7 @@ bool RoamingCodec::decodeConfigAck(const uint8_t* payload, uint32_t length, bool
 
     const uint32_t masterNetId = GET_UINT24(payload, 1U);
     const uint32_t masterSysId = GET_UINT16(payload, 4U);
-    if (masterNetId == 0U || masterSysId == 0U || !SUID::validSystem(masterNetId, masterSysId)) {
+    if (!SUID::validIdentity(masterNetId, masterSysId)) {
         return false;
     }
 

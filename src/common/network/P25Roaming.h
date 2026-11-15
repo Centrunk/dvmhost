@@ -237,6 +237,13 @@ namespace network
              */
             static bool validSystem(uint32_t netId, uint32_t sysId);
             /**
+             * @brief Checks that a WACN ID and System ID are both assigned (nonzero) and within range.
+             * @param netId WACN ID.
+             * @param sysId System ID.
+             * @returns bool True if neither is zero and both pass validSystem(); otherwise, false.
+             */
+            static bool validIdentity(uint32_t netId, uint32_t sysId);
+            /**
              * @brief Packs a WACN ID and System ID into a 32-bit system table key.
              * @param netId WACN ID.
              * @param sysId System ID.
