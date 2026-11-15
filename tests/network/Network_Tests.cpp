@@ -1248,11 +1248,6 @@ TEST_CASE("Network carries P25 roaming frames and SUID announcements only on a n
     CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID);
     CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == affilBytes);
 
-    REQUIRE(network.announceGroupAffiliationRemovalSUID(suid));
-    REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
-    CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID);
-    CHECK(std::vector<uint8_t>(payload.begin(), payload.end()) == unitBytes);
-
     REQUIRE(network.announceUnitRegUpdateSUID(std::vector<roaming::SUID>({ suid })));
     REQUIRE(waitForFunctionMessage(metadataReceiverQueue, NET_FUNC::ANNOUNCE, payload, fneHeader));
     CHECK(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID);

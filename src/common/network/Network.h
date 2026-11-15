@@ -422,12 +422,6 @@ namespace network
          */
         virtual bool announceGroupAffiliationSUID(const roaming::SUID& suid, uint32_t talkgroup);
         /**
-         * @brief Announces the removal of a foreign SU's group affiliation by SUID (ANNC_SUBFUNC_GRP_UNAFFIL_SUID).
-         * @param suid Foreign SUID.
-         * @returns bool True if sent; false if roaming is not negotiated or the SUID is out of range.
-         */
-        virtual bool announceGroupAffiliationRemovalSUID(const roaming::SUID& suid);
-        /**
          * @brief Announces the complete foreign unit registration list by SUID (ANNC_SUBFUNC_UNIT_REGS_SUID).
          * @param regs Foreign SUIDs registered at this site.
          * @returns bool True if sent; false if roaming is not negotiated or an entry is invalid.

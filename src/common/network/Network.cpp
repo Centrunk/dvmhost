@@ -301,13 +301,6 @@ bool Network::announceGroupAffiliationSUID(const roaming::SUID& suid, uint32_t t
     return writeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, suid, talkgroup);
 }
 
-/* Announces the removal of a foreign SU's group affiliation by SUID. */
-
-bool Network::announceGroupAffiliationRemovalSUID(const roaming::SUID& suid)
-{
-    return writeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID, suid, 0U);
-}
-
 /* Announces the complete foreign unit registration list by SUID. */
 
 bool Network::announceUnitRegUpdateSUID(const std::vector<roaming::SUID>& regs)
