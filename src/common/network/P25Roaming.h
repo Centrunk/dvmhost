@@ -42,10 +42,6 @@ namespace network
 
         /** @brief Length of the ROAMING common header (version, hop count, transaction ID) in bytes. */
         const uint32_t ROAM_HEADER_LEN = 6U;
-        /** @brief Length of a SUID field group (WACN 3, System ID 2, Unit ID 3) in bytes. */
-        const uint32_t ROAM_SUID_LEN = 8U;
-        /** @brief Length of an RFSS identity field group (WACN 3, System ID 2, RFSS ID 1) in bytes (BACA 3.4.1.1). */
-        const uint32_t ROAM_RFSS_LEN = 6U;
 
         /** @brief Total ROAM_SERVING_REG length in bytes. */
         const uint32_t MSG_ROAM_SERVING_REG_LEN = 21U;
