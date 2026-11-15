@@ -3136,6 +3136,31 @@ TEST_CASE("P25 roaming WUID is released when its registration timer expires", "[
     p25::lc::TSBK::setSiteData(previous);
 }
 
+TEST_CASE("P25 roaming WUID expiry commands re-registration with the standard MFID and leaves the RF MFID alone", "[p25][host][roaming][wuid][expiry][mfid]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    P25HostHarness harness(true, false, 0U, 1U, false, false, true);
+    prepareRoaming(harness, true, {});
+    HostTestHooks::p25InstallUnitDeregCallback(*harness.m_control);
+    HostTestHooks::p25SetUnitRegTimeout(*harness.m_control, 5U);
+
+    const uint32_t wuid = registerUnit(harness, 0xBB800U, 0x002U, 1001U);
+    REQUIRE(wuid == 9000000U);
+
+    // the expiry runs off the RF thread, so the MFID of the last RF TSBK belongs to an unrelated transaction
+    HostTestHooks::p25SetLastMFId(*harness.m_control, p25::defines::MFG_MOT);
+    HostTestHooks::p25ClockSiteData(*harness.m_control, 6000U);
+
+    const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+    const std::vector<uint8_t>* cmd = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_REG_CMD);
+    REQUIRE(cmd != nullptr);
+    CHECK((*cmd)[1U] == p25::defines::MFG_STANDARD);
+    CHECK(getUint24(cmd->data(), 4U) == wuid);
+    CHECK(HostTestHooks::p25LastMFId(*harness.m_control) == p25::defines::MFG_MOT);
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
 TEST_CASE("P25 services addressed to a roaming WUID never reach the network", "[p25][host][roaming][target]")
 {
     const p25::SiteData previous = p25::lc::TSBK::getSiteData();
