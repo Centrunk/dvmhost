@@ -3764,12 +3764,8 @@ bool TrafficNetwork::writePeerQueue(udp::BufferQueue* buffers, uint32_t peerId, 
     PeerConnectionPtr connection = findPeer(peerId);
     if (connection != nullptr) {
 #if defined(CATCH2_TEST_COMPILATION)
-        if (m_testPeerWriteDataHandler) {
-            m_testPeerWriteDataHandler(peerId, opcode, data, length);
-            return true;
-        }
         if (m_testPeerWriteHandler) {
-            m_testPeerWriteHandler(peerId, opcode);
+            m_testPeerWriteHandler(peerId, opcode, data, length);
             return true;
         }
 #endif
@@ -3925,8 +3921,8 @@ bool TrafficNetwork::writePeerNAK(uint32_t peerId, const char* tag, NET_CONN_NAK
     LogWarning(LOG_MASTER, "PEER %u NAK %s -> %s:%u", peerId, tag, udp::Socket::address(addr).c_str(), udp::Socket::port(addr));
 #if defined(CATCH2_TEST_COMPILATION)
     // a NAK addressed to a raw socket address bypasses writePeer(); tests capture it the same way
-    if (m_testPeerWriteDataHandler) {
-        m_testPeerWriteDataHandler(peerId, { NET_FUNC::NAK, NET_SUBFUNC::NOP }, buffer, 12U);
+    if (m_testPeerWriteHandler) {
+        m_testPeerWriteHandler(peerId, { NET_FUNC::NAK, NET_SUBFUNC::NOP }, buffer, 12U);
         return true;
     }
 #endif

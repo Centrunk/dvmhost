@@ -375,8 +375,7 @@ namespace network
     private:
 #if defined(CATCH2_TEST_COMPILATION)
         friend class ::FNETestHooks;
-        std::function<void(uint32_t, FrameQueue::OpcodePair)> m_testPeerWriteHandler;
-        std::function<void(uint32_t, FrameQueue::OpcodePair, const uint8_t*, uint32_t)> m_testPeerWriteDataHandler;
+        std::function<void(uint32_t, FrameQueue::OpcodePair, const uint8_t*, uint32_t)> m_testPeerWriteHandler;
 #endif
         friend class MetadataNetwork;
         friend class callhandler::TagDMRData;

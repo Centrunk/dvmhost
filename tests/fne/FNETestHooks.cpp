@@ -95,7 +95,7 @@ std::shared_ptr<fne_lookups::AffiliationLookup> FNETestHooks::peerAffiliations(T
 
 void FNETestHooks::capturePeerWrites(TrafficNetwork& network, std::vector<uint32_t>& peerIds)
 {
-    network.m_testPeerWriteHandler = [&peerIds](uint32_t peerId, FrameQueue::OpcodePair) {
+    network.m_testPeerWriteHandler = [&peerIds](uint32_t peerId, FrameQueue::OpcodePair, const uint8_t*, uint32_t) {
         peerIds.push_back(peerId);
     };
 }
@@ -104,7 +104,7 @@ void FNETestHooks::capturePeerWrites(TrafficNetwork& network, std::vector<uint32
 
 void FNETestHooks::capturePeerWriteData(TrafficNetwork& network, std::vector<PeerWrite>& writes)
 {
-    network.m_testPeerWriteDataHandler = [&writes](uint32_t peerId, FrameQueue::OpcodePair opcode, const uint8_t* data, uint32_t length) {
+    network.m_testPeerWriteHandler = [&writes](uint32_t peerId, FrameQueue::OpcodePair opcode, const uint8_t* data, uint32_t length) {
         PeerWrite write;
         write.peerId = peerId;
         write.function = opcode.first;
@@ -121,7 +121,6 @@ void FNETestHooks::capturePeerWriteData(TrafficNetwork& network, std::vector<Pee
 void FNETestHooks::clearPeerWriteCapture(TrafficNetwork& network)
 {
     network.m_testPeerWriteHandler = nullptr;
-    network.m_testPeerWriteDataHandler = nullptr;
 }
 
 /* Captures the next metadata response payload and opcodes. */
