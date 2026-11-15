@@ -2461,7 +2461,10 @@ void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid,
     }
 
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    // a roaming route is SUID-only: it never touches the Unit ID routes of a DMR/NXDN radio sharing the unit number
+    // a roaming route is SUID-only: it never touches the Unit ID routes of a DMR/NXDN radio sharing the unit number;
+    //  consequently a learned or untagged (older host) bare Unit ID route of a P25 home unit that roams away stays in
+    //  place until it expires or is removed, because erasing it could remove a DMR/NXDN radio's route.
+    //  A P25-tagged registration is released through removeLocalUnitRegistration.
     m_network->m_unitRouteRegistry.updateSuid(suid, link.peerId, link.peerId, now);
 }
 

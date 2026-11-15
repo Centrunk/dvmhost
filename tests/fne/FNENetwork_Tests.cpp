@@ -1941,6 +1941,28 @@ TEST_CASE("FNE unit route registry records whether the explicit registration was
     CHECK(registry.resolve(1001U, 190U).peerId == 10U);
 }
 
+TEST_CASE("FNE unit route registry leaves bare Unit ID routes to the old home site after a home SUID roams", "[fne][routing][registry][roaming]")
+{
+    network::UnitRouteRegistry registry(1000U);
+    const network::roaming::SUID home = { 0xDEE00U, 0x911U, 1001U };
+
+    // a traffic-learned bare route is not erased by the roam; it ages out normally
+    REQUIRE(registry.update(1001U, 10U, 10U, true, 100U));
+    REQUIRE(registry.updateSuid(home, 20U, 20U, 110U));
+    CHECK(registry.resolve(1001U, 110U).peerId == 10U);
+    CHECK(registry.resolveSuid(home).peerId == 20U);
+    CHECK_FALSE(registry.resolve(1001U, 1200U).valid);
+    CHECK(registry.resolveSuid(home).peerId == 20U);
+
+    // a P25-tagged registration is likewise kept until the home site's release removes it
+    REQUIRE(registry.update(2002U, 10U, 10U, false, 200U, true));
+    REQUIRE(registry.updateSuid(network::roaming::SUID{ 0xDEE00U, 0x911U, 2002U }, 20U, 20U, 210U));
+    CHECK(registry.resolve(2002U, 5000U).peerId == 10U);
+    CHECK(registry.erase(2002U, 10U));
+    CHECK_FALSE(registry.resolve(2002U, 5000U).valid);
+    CHECK(registry.resolveSuid(network::roaming::SUID{ 0xDEE00U, 0x911U, 2002U }).peerId == 20U);
+}
+
 TEST_CASE("FNE unit route registry rejects SUIDs wider than 24 bits",
     "[fne][routing][registry][roaming]")
 {
