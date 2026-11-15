@@ -2729,9 +2729,10 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
         REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
         REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
         CHECK(((rsp[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
-        CHECK(((((uint32_t)rsp[2U] & 0x0FU) << 8) | rsp[3U]) == 0x002U);
+        CHECK(((((uint32_t)rsp[2U] & 0x0FU) << 8) | rsp[3U]) == 0x001U);            // the site System ID, as before roaming
         CHECK(getUint24(rsp, 4U) == 1001U);
-        CHECK(getUint24(rsp, 7U) == 0U);
+        CHECK(getUint24(rsp, 7U) == 1001U);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
     }
 
     SECTION("System_ID_Not_Listed_Denied") {
@@ -3290,6 +3291,100 @@ TEST_CASE("P25 roaming registration skips the RID ACL", "[p25][host][roaming][ac
     REQUIRE(rsp != nullptr);
     CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::REFUSED);
     CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) != nullptr);
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 unit registration and de-registration with roaming off match the pre-roaming behavior", "[p25][host][roaming][off]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    const uint16_t localPort = reserveLoopbackPort();
+    REQUIRE(localPort != 0U);
+    P25HostHarness harness(true, true, localPort, 1U, false, false, true, true);
+    harness.m_ridLookup.addEntry(1001U, true, "home 1001");
+    harness.network()->activateForTest();
+    prepareRoaming(harness, false, {});
+    HostTestHooks::p25SetInhibitUnauth(*harness.m_control, true);
+
+    uint8_t raw[p25::defines::P25_TSBK_LENGTH_BYTES];
+
+    SECTION("Foreign_WACN_With_Site_System_ID_Accepted") {
+        // the WACN was never examined before roaming
+        buildUnitRegRequest(0x12345U, 0x001U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::ACCEPT);
+        CHECK(((((uint32_t)(*rsp)[2U] & 0x0FU) << 8) | (*rsp)[3U]) == 0x001U);
+        CHECK(getUint24(rsp->data(), 4U) == 1001U);
+        CHECK(getUint24(rsp->data(), 7U) == 1001U);
+        CHECK(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+        CHECK(harness.network()->announcedIds().size() == 1U);                      // announced to the FNE
+    }
+
+    SECTION("Foreign_System_ID_Denied_With_Site_System_ID_And_Requester_Address") {
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::DENY);
+        CHECK(((((uint32_t)(*rsp)[2U] & 0x0FU) << 8) | (*rsp)[3U]) == 0x001U);
+        CHECK(getUint24(rsp->data(), 4U) == 1001U);
+        CHECK(getUint24(rsp->data(), 7U) == 1001U);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) == nullptr);      // a listed RID is not inhibited
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+    }
+
+    SECTION("Foreign_System_ID_Unlisted_RID_Refused_And_Inhibited") {
+        buildUnitRegRequest(0xBB800U, 0x002U, 1005U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* rsp = findTSBK(tsbks, p25::defines::TSBKO::IOSP_U_REG);
+        REQUIRE(rsp != nullptr);
+        CHECK((((*rsp)[2U] >> 4) & 0x03U) == p25::defines::ResponseCode::REFUSED);
+        CHECK(((((uint32_t)(*rsp)[2U] & 0x0FU) << 8) | (*rsp)[3U]) == 0x001U);
+        CHECK(getUint24(rsp->data(), 4U) == 1005U);
+        CHECK(getUint24(rsp->data(), 7U) == 1005U);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) != nullptr);      // automatic inhibit
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1005U));
+    }
+
+    SECTION("Foreign_System_ID_With_LLA_Requirement_Demands_Authentication") {
+        HostTestHooks::p25SetRequireLLAForReg(*harness.m_control, true);
+        buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        uint8_t rsp[p25::defines::P25_TSBK_LENGTH_BYTES];
+        bool pduSeen = false;
+        // no registration response is sent; the host defers to LLA (the LLA keys are requested from the FNE)
+        CHECK_FALSE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+    }
+
+    SECTION("Foreign_System_ID_Deregistration_Releases_The_Unit_ID") {
+        buildUnitRegRequest(0xBB800U, 0x001U, 1001U, raw);
+        REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
+        drainTSBKs(*harness.m_control);
+        REQUIRE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+
+        buildUnitDeregRequest(0xBB800U, 0x002U, 1001U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        const std::vector<uint8_t>* ack = findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK);
+        REQUIRE(ack != nullptr);
+        CHECK(getUint24(ack->data(), 7U) == 1001U);
+        CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, 1001U));
+    }
+
+    SECTION("Foreign_System_ID_Deregistration_From_Unlisted_RID_Denied_And_Inhibited") {
+        buildUnitDeregRequest(0xBB800U, 0x002U, 1005U, raw);
+        HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw);
+        const std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_U_DEREG_ACK) == nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::OSP_DENY_RSP) != nullptr);
+        CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_EXT_FNCT) != nullptr);
+    }
 
     p25::lc::TSBK::setSiteData(previous);
 }
