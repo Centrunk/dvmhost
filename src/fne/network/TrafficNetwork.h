@@ -481,9 +481,10 @@ namespace network
              */
             bool isHomeUnitAuthorized(uint32_t unitId) override;
             /**
-             * @brief Finds the host peer (home site) where a home unit is registered.
+             * @brief Finds the host peer (home site) where a home unit holds a P25-tagged explicit registration.
              * @param unitId Home Unit ID.
-             * @returns uint32_t Host peer ID, or 0.
+             * @returns uint32_t Host peer ID, or 0 when the unit's route is learned, untagged, DMR or NXDN, or on a
+             *  neighbor FNE.
              */
             uint32_t findLocalUnitPeer(uint32_t unitId) override;
             /**
@@ -1003,12 +1004,16 @@ namespace network
          * @param peerId Peer ID.
          * @param srcId Source Radio ID.
          * @param ssrc Originating peer ID.
+         * @param protocol Protocol carried by the unit registration announcement (NET_SUBFUNC::PROTOCOL_SUBFUNC_*),
+         *  or NET_SUBFUNC::NOP when it carried none (older host) or the registration was learned; only a
+         *  PROTOCOL_SUBFUNC_P25 registration counts as a home unit registering on a home site.
          * @param log Flag indicating whether the registration should be logged.
          * @param learned Flag indicating the registration was learned from validated traffic rather than announced
          *  by the peer; a learned registration never counts as a home unit registering on a home site.
          * @returns bool True, if the peer affiliation lookup exists, otherwise false.
          */
-        bool updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log = true, bool learned = false);
+        bool updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, NET_SUBFUNC::ENUM protocol, bool log = true,
+            bool learned = false);
         /**
          * @brief Removes one peer unit registration and publishes the aggregate upstream.
          * @param peerId Peer ID.

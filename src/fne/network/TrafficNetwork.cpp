@@ -1693,7 +1693,7 @@ void TrafficNetwork::learnUnitRouteFromTraffic(uint32_t peerId, uint32_t srcId, 
     // update the peer unit registration
     const UnitRoute current = m_unitRouteRegistry.resolve(srcId, now);
     if (!current.valid || current.peerId != peerId) {
-        updatePeerUnitRegistration(peerId, srcId, ssrc, false, true);
+        updatePeerUnitRegistration(peerId, srcId, ssrc, NET_SUBFUNC::NOP, false, true);
     }
 
     m_unitRouteRegistry.update(srcId, peerId, ssrc, true, now);
@@ -2091,8 +2091,11 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
 
 /* Adds one peer unit registration and publishes the aggregate upstream. */
 
-bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, bool log, bool learned)
+bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId, uint32_t ssrc, NET_SUBFUNC::ENUM protocol, bool log,
+    bool learned)
 {
+    const bool p25Registered = !learned && protocol == NET_SUBFUNC::PROTOCOL_SUBFUNC_P25;
+
     std::vector<uint32_t> aggregate;
 
     if (srcId == P25DEF::WUID_FNE) {
@@ -2110,7 +2113,7 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
         registrations->unitReg(srcId, ssrc, log);
 
         const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        m_unitRouteRegistry.update(srcId, peerId, ssrc, false, now);
+        m_unitRouteRegistry.update(srcId, peerId, ssrc, false, now, p25Registered);
 
         aggregate = buildAggregatedUnitRegistrations();
     }
@@ -2119,8 +2122,9 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
 
     // a home SU registering on a home site ends any registration at a serving RFSS (BACA 5.1); a downstream
     //  neighbor FNE is another system, never a home site of this one, and a route learned from traffic is not
-    //  a registration on the site
-    if (learned) {
+    //  a registration on the site. Radios of other protocols may share the unit number, so only a P25-tagged
+    //  registration counts; an untagged one (older host), DMR or NXDN never releases a roamer
+    if (!p25Registered) {
         return true;
     }
 
@@ -2421,10 +2425,15 @@ bool TrafficNetwork::RoamingHostAdapter::isHomeUnitAuthorized(uint32_t unitId)
 
 uint32_t TrafficNetwork::RoamingHostAdapter::findLocalUnitPeer(uint32_t unitId)
 {
-    const uint32_t peerId = m_network->findPeerUnitReg(unitId);
-    if (peerId == 0U) {
+    // only a P25-tagged explicit registration is released; a DMR or NXDN holder of the same Unit ID, an untagged
+    //  (older host or bulk snapshot) registration and a traffic-learned route are left in place
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const UnitRoute route = m_network->m_unitRouteRegistry.resolve(unitId, now);
+    if (!route.valid || route.learned || !route.p25Registered) {
         return 0U;
     }
+
+    const uint32_t peerId = route.peerId;
 
     // a home site is a host peer of this FNE, never a neighbor FNE
     PeerConnectionPtr connection = m_network->findPeer(peerId);

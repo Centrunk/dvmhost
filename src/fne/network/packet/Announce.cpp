@@ -72,7 +72,15 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                 if (connection->connected() && connection->address() == ip && aff != nullptr) {
                     if (req->length >= static_cast<int>(MSG_ANNC_UNIT_REG)) {
                         uint32_t srcId = GET_UINT24(req->buffer, 0U);           // Source Address
-                        network->updatePeerUnitRegistration(peerId, srcId, ssrc);
+
+                        // the protocol byte is optional (older hosts send 3 bytes); DMR is 0x00, so presence is
+                        //  decided by length, never by value
+                        NET_SUBFUNC::ENUM protocol = NET_SUBFUNC::NOP;
+                        if (req->length >= static_cast<int>(MSG_ANNC_UNIT_REG_PROTO)) {
+                            protocol = static_cast<NET_SUBFUNC::ENUM>(req->buffer[3U]);
+                        }
+
+                        network->updatePeerUnitRegistration(peerId, srcId, ssrc, protocol);
                     }
                     else {
                         LogWarning(LOG_MASTER, "PEER %u (%s) announced malformed unit registration, length = %u",
@@ -100,6 +108,7 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                 // validate peer (simple validation really)
                 if (connection->connected() && connection->address() == ip && aff != nullptr) {
                     if (req->length >= static_cast<int>(MSG_ANNC_UNIT_REG)) {
+                        // removal is protocol agnostic; the optional protocol byte at offset 3 is not used here
                         uint32_t srcId = GET_UINT24(req->buffer, 0U);           // Source Address
                         network->removePeerUnitRegistration(peerId, srcId);
                     }
@@ -240,6 +249,7 @@ void MetadataNetwork::PacketHandler::announce(TrafficNetwork* network, MetadataN
                             registrations.push_back(srcId);
                         }
 
+                        // the snapshot carries no protocol, so it never releases a P25 roamer (no localRegistration)
                         network->replacePeerUnitRegistrations(peerId, registrations, ssrc);
                         LogInfoEx(LOG_MASTER, "PEER %u (%s) announced %u unit registrations", peerId, connection->identWithQualifier().c_str(), len);
                     }

@@ -64,7 +64,7 @@ void FNETestHooks::registerP25Unit(TrafficNetwork& network, uint32_t sitePeerId,
         std::make_shared<fne_lookups::AffiliationLookup>("test-p25-registrations", nullptr, false);
     affiliations->unitReg(unitId, sitePeerId);
     network.m_peerAffiliations[sitePeerId] = affiliations;
-    network.updatePeerUnitRegistration(sitePeerId, unitId, sitePeerId);
+    network.updatePeerUnitRegistration(sitePeerId, unitId, sitePeerId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
 }
 
 /* Adds a talkgroup affiliation owned by a site peer. */
@@ -1189,6 +1189,13 @@ bool FNETestHooks::findSuidRegistration(TrafficNetwork& network, const roaming::
 uint32_t FNETestHooks::findPeerUnitReg(TrafficNetwork& network, uint32_t unitId)
 {
     return network.findPeerUnitReg(unitId);
+}
+
+/* Finds the home site the P25 roaming service would release for a home unit. */
+
+uint32_t FNETestHooks::findLocalUnitPeer(TrafficNetwork& network, uint32_t unitId)
+{
+    return network.m_roamingHost->findLocalUnitPeer(unitId);
 }
 
 /* Resolves the next-hop peer of a SUID route. */

@@ -118,7 +118,7 @@ public:
     static bool isP25TelIntPeerPermitted(network::TrafficNetwork& network, uint32_t srcPeerId,
         uint32_t dstPeerId, uint32_t dstId);
     /**
-     * @brief Adds a unit registration owned by a site peer.
+     * @brief Adds a P25-tagged unit registration owned by a site peer.
      * @param network The TrafficNetwork instance.
      * @param sitePeerId Site peer that owns the registration.
      * @param unitId Registered subscriber radio ID.
@@ -465,6 +465,14 @@ public:
      * @return Peer ID, or 0 when no route exists.
      */
     static uint32_t findPeerUnitReg(network::TrafficNetwork& network, uint32_t unitId);
+    /**
+     * @brief Finds the home site the P25 roaming service would release for a home unit (the production
+     *  RoamingServiceHost::findLocalUnitPeer).
+     * @param network The TrafficNetwork instance.
+     * @param unitId Home Unit ID.
+     * @return Host peer ID, or 0 when the unit holds no P25 registration on a home site.
+     */
+    static uint32_t findLocalUnitPeer(network::TrafficNetwork& network, uint32_t unitId);
     /**
      * @brief Looks up a foreign (SUID) registration entry.
      * @param network The TrafficNetwork instance.

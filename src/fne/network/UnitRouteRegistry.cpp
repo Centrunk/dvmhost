@@ -75,7 +75,7 @@ void UnitRouteRegistry::setOwnSystem(uint32_t netId, uint32_t sysId)
 
 /* Adds or refreshes a route for one of this system's units. */
 
-bool UnitRouteRegistry::update(uint32_t unitId, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs)
+bool UnitRouteRegistry::update(uint32_t unitId, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs, bool p25Registered)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     const roaming::SUID suid = ownSuid(unitId);
@@ -83,7 +83,7 @@ bool UnitRouteRegistry::update(uint32_t unitId, uint32_t peerId, uint32_t ssrc, 
         return false;
     }
 
-    return storeLocked(suid, peerId, ssrc, learned, false, nowMs);
+    return storeLocked(suid, peerId, ssrc, learned, false, nowMs, p25Registered);
 }
 
 /* Adds or refreshes a route for a SUID. */
@@ -95,7 +95,7 @@ bool UnitRouteRegistry::updateSuid(const roaming::SUID& suid, uint32_t peerId, u
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    return storeLocked(suid, peerId, ssrc, learned, false, nowMs);
+    return storeLocked(suid, peerId, ssrc, learned, false, nowMs, false);
 }
 
 /* Adds or refreshes a P25 roaming route for a SUID served through another link. */
@@ -107,7 +107,7 @@ bool UnitRouteRegistry::updateRoaming(const roaming::SUID& suid, uint32_t peerId
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    return storeLocked(suid, peerId, peerId, false, true, nowMs);
+    return storeLocked(suid, peerId, peerId, false, true, nowMs, false);
 }
 
 /* Replaces all explicit own-system routes learned through one peer. */
@@ -131,6 +131,11 @@ void UnitRouteRegistry::replacePeer(uint32_t peerId, const std::vector<uint32_t>
             continue;
 
         UnitRoute& route = m_routes[suid.pack()];
+
+        // the snapshot carries no protocol, so it neither proves nor disproves a P25 registration already held by
+        //  the same peer; any other listed route is untagged
+        const bool keepP25 = route.valid && route.peerId == peerId && !route.learned && !route.roamed && route.p25Registered;
+
         route.unitId = unitId;
         route.netId = suid.netId;
         route.sysId = suid.sysId;
@@ -139,6 +144,7 @@ void UnitRouteRegistry::replacePeer(uint32_t peerId, const std::vector<uint32_t>
         route.lastSeen = nowMs;
         route.learned = false;
         route.roamed = false;
+        route.p25Registered = keepP25;
         route.valid = true;
     }
 }
@@ -276,7 +282,8 @@ bool UnitRouteRegistry::isOwn(const UnitRoute& route) const
 
 /* Adds or refreshes a route. */
 
-bool UnitRouteRegistry::storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, bool roamed, uint64_t nowMs)
+bool UnitRouteRegistry::storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, bool roamed, uint64_t nowMs,
+    bool p25Registered)
 {
     if (suid.unitId == 0U || peerId == 0U)
         return false;
@@ -299,6 +306,7 @@ bool UnitRouteRegistry::storeLocked(const roaming::SUID& suid, uint32_t peerId, 
     route.lastSeen = nowMs;
     route.learned = learned;
     route.roamed = roamed;
+    route.p25Registered = p25Registered && !learned && !roamed;
     route.valid = true;
     return true;
 }

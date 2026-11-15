@@ -721,6 +721,165 @@ TEST_CASE("FNE does not treat a traffic-learned unit route as a home-site regist
     CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
 }
 
+TEST_CASE("FNE releases a roamed home unit only on a P25-tagged unit registration from a host", "[fne][roaming][dispatch][announce]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));                 // this FNE is the home of $911
+    harness.radios.addEntry(0x0F4240U, true, "home roamer");
+
+    const RoamingLink fne13B = { 2001U, false };
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    harness.traffic.roaming()->linkUp(fne13B, true, true, 0xDEE00U, 0x13BU);
+
+    // a home site with a registration table (another unit registered there)
+    FNETestHooks::addPeer(harness.traffic, 501U, network::NET_STAT_RUNNING, true);
+    FNETestHooks::registerP25Unit(harness.traffic, 501U, 1234U);
+
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2001U, reg);
+    REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+
+    std::vector<FNETestHooks::PeerWrite> writes;
+    FNETestHooks::capturePeerWriteData(harness.traffic, writes);
+    auto announceReg = [&](const std::vector<uint8_t>& payload) {
+        FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+            network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG, 501U, payload);
+    };
+    auto homeDeregs = [&]() {
+        return std::count_if(writes.begin(), writes.end(), [](const FNETestHooks::PeerWrite& write) {
+            return write.subFunction == network::NET_SUBFUNC::ROAM_HOME_DEREG;
+        });
+    };
+
+    // radios share unit numbers across protocols: a DMR, NXDN or untagged (older host) registration of the same
+    //  Unit ID is a different radio and never ends the P25 roamer's serving registration
+    announceReg({ 0x0FU, 0x42U, 0x40U, 0x00U });                                    // DMR
+    CHECK(FNETestHooks::peerAffiliations(harness.traffic, 501U)->isUnitReg(0x0F4240U));
+    CHECK(homeDeregs() == 0);
+    CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
+
+    announceReg({ 0x0FU, 0x42U, 0x40U, 0x02U });                                    // NXDN
+    CHECK(homeDeregs() == 0);
+    CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
+
+    announceReg({ 0x0FU, 0x42U, 0x40U });                                           // untagged 3-byte form
+    CHECK(FNETestHooks::peerAffiliations(harness.traffic, 501U)->isUnitReg(0x0F4240U));
+    CHECK(homeDeregs() == 0);
+    CHECK(harness.traffic.roaming()->homeRecords().size() == 1U);
+
+    // a P25-tagged registration on the home site deregisters the serving RFSS (Roamed, BACA 5.1)
+    announceReg({ 0x0FU, 0x42U, 0x40U, 0x01U });                                    // P25
+    REQUIRE(homeDeregs() == 1);
+    CHECK(writes.back().peerId == 2001U);
+    REQUIRE(writes.back().data.size() == MSG_ROAM_HOME_DEREG_LEN);
+    CHECK(writes.back().data[14U] == RoamQualifier::ROAMED);
+    CHECK(harness.traffic.roaming()->homeRecords().empty());
+}
+
+TEST_CASE("FNE finds a home unit's local registration for release only when it is P25-tagged", "[fne][roaming][route]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));
+    FNETestHooks::configurePrivateCallRouting(harness.traffic, true, "reject", true, 300000U);
+
+    const uint32_t unit = 0x0F4240U;
+    FNETestHooks::addPeer(harness.traffic, 501U, network::NET_STAT_RUNNING, true);
+    FNETestHooks::registerP25Unit(harness.traffic, 501U, 1234U);
+    FNETestHooks::addPeer(harness.traffic, 502U, network::NET_STAT_RUNNING, true);
+    FNETestHooks::registerP25Unit(harness.traffic, 502U, 1235U);
+    auto announceReg = [&](uint32_t peerId, const std::vector<uint8_t>& payload) {
+        FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+            network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG, peerId, payload);
+    };
+
+    // DMR, NXDN and untagged registrations route the bare Unit ID but are never released by P25 roaming
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U, 0x00U });
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, unit) == 501U);
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 0U);
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U, 0x02U });
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 0U);
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U });
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 0U);
+
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U, 0x01U });
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 501U);
+
+    // a later DMR registration of the same Unit ID replaces the P25 one
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U, 0x00U });
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 0U);
+
+    // traffic through the registered site keeps the P25 registration; traffic through another site replaces it
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U, 0x01U });
+    FNETestHooks::learnUnitRoute(harness.traffic, 501U, unit, 501U);
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 501U);
+    FNETestHooks::learnUnitRoute(harness.traffic, 502U, unit, 502U);
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, unit) == 502U);
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 0U);
+
+    // the bulk snapshot carries no protocol: it keeps an existing P25 registration on the same site and creates
+    //  untagged ones
+    announceReg(501U, { 0x0FU, 0x42U, 0x40U, 0x01U });
+    REQUIRE(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 501U);
+    REQUIRE(FNETestHooks::replaceUnitRegistrations(harness.traffic, 501U, { unit, 1234U, 2222U }, 501U));
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 501U);
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, 2222U) == 501U);
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, 2222U) == 0U);
+
+    // a snapshot from another site replaces the route and is untagged
+    REQUIRE(FNETestHooks::replaceUnitRegistrations(harness.traffic, 502U, { unit, 1235U }, 502U));
+    CHECK(FNETestHooks::findPeerUnitReg(harness.traffic, unit) == 502U);
+    CHECK(FNETestHooks::findLocalUnitPeer(harness.traffic, unit) == 0U);
+}
+
+TEST_CASE("FNE serving registration leaves a DMR registration of the same Unit ID at a home site", "[fne][roaming][dispatch]")
+{
+    RoamingFNEHarness harness;
+    harness.traffic.setP25RoamingConfig(configFor(0xDEE00U, 0x911U));                 // this FNE is the home of $911
+    harness.radios.addEntry(0x0F4240U, true, "home roamer");
+
+    const RoamingLink fne13B = { 2001U, false };
+    FNETestHooks::addPeer(harness.traffic, 2001U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    harness.traffic.roaming()->linkUp(fne13B, true, true, 0xDEE00U, 0x13BU);
+
+    // a roaming-capable home site, so a release would also send it a Home Deregistration
+    const RoamingLink site = { 501U, false };
+    FNETestHooks::addPeer(harness.traffic, 501U, network::NET_STAT_RUNNING, true).p25RoamingCapable(true);
+    harness.traffic.roaming()->linkUp(site, true, false, 0xDEE00U, 0x911U);
+    FNETestHooks::registerP25Unit(harness.traffic, 501U, 1234U);
+
+    const std::vector<uint8_t> reg = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U,
+        0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x01U, 0x01U };
+    std::vector<FNETestHooks::PeerWrite> writes;
+
+    SECTION("DMR registration is kept") {
+        FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+            network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG, 501U, { 0x0FU, 0x42U, 0x40U, 0x00U });
+        FNETestHooks::capturePeerWriteData(harness.traffic, writes);
+
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2001U, reg);
+        REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+        for (const FNETestHooks::PeerWrite& write : writes) {
+            CHECK(write.peerId != 501U);
+        }
+        CHECK(FNETestHooks::peerAffiliations(harness.traffic, 501U)->isUnitReg(0x0F4240U));
+    }
+
+    SECTION("P25 registration is released") {
+        FNETestHooks::dispatchMetadata(harness.traffic, harness.metadata, network::NET_FUNC::ANNOUNCE,
+            network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG, 501U, { 0x0FU, 0x42U, 0x40U, 0x01U });
+        FNETestHooks::capturePeerWriteData(harness.traffic, writes);
+
+        FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::ROAMING, network::NET_SUBFUNC::ROAM_SERVING_REG, 2001U, reg);
+        REQUIRE(harness.traffic.roaming()->homeRecords().size() == 1U);
+        const bool siteDereg = std::any_of(writes.begin(), writes.end(), [](const FNETestHooks::PeerWrite& write) {
+            return write.peerId == 501U && write.subFunction == network::NET_SUBFUNC::ROAM_HOME_DEREG;
+        });
+        CHECK(siteDereg);
+        CHECK_FALSE(FNETestHooks::peerAffiliations(harness.traffic, 501U)->isUnitReg(0x0F4240U));
+    }
+}
+
 TEST_CASE("FNE treats a downstream FNE offering this system's own identity as not roaming capable", "[fne][roaming][login]")
 {
     // exactly one FNE per system (WACN + System ID) holds the identity: the home (one Home RFSS per SU)

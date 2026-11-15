@@ -1913,6 +1913,52 @@ TEST_CASE("FNE unit route registry hides roaming routes from bare Unit ID lookup
     CHECK_FALSE(registry.updateRoaming(home, 0U, 100U));
 }
 
+TEST_CASE("FNE unit route registry records whether the explicit registration was P25-tagged", "[fne][routing][registry][roaming]")
+{
+    network::UnitRouteRegistry registry(1000U);
+    registry.setOwnSystem(0xDEE00U, 0x911U);
+    const network::roaming::SUID home = { 0xDEE00U, 0x911U, 1001U };
+
+    // the default is an untagged registration (DMR, NXDN or an older host)
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 100U));
+    CHECK_FALSE(registry.resolve(1001U, 100U).p25Registered);
+
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 110U, true));
+    CHECK(registry.resolve(1001U, 110U).p25Registered);
+
+    // traffic through the registered peer refreshes the registration and keeps the tag
+    REQUIRE(registry.update(1001U, 10U, 10U, true, 120U));
+    network::UnitRoute route = registry.resolve(1001U, 120U);
+    CHECK(route.p25Registered);
+    CHECK_FALSE(route.learned);
+    CHECK(route.lastSeen == 120U);
+
+    // another registration of the same Unit ID overwrites the tag
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 130U));
+    CHECK_FALSE(registry.resolve(1001U, 130U).p25Registered);
+
+    // a learned route is never a P25 registration, even when the caller says so
+    REQUIRE(registry.update(2002U, 11U, 11U, true, 140U, true));
+    CHECK_FALSE(registry.resolve(2002U, 140U).p25Registered);
+
+    // the bulk snapshot keeps the tag of the same peer's explicit registration and creates untagged routes
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 150U, true));
+    registry.replacePeer(10U, { 1001U, 3003U }, 10U, 160U);
+    CHECK(registry.resolve(1001U, 160U).p25Registered);
+    CHECK_FALSE(registry.resolve(3003U, 160U).p25Registered);
+
+    // a snapshot from another peer replaces the route untagged
+    registry.replacePeer(12U, { 1001U }, 12U, 170U);
+    route = registry.resolve(1001U, 170U);
+    CHECK(route.peerId == 12U);
+    CHECK_FALSE(route.p25Registered);
+
+    // a roaming route replaces a tagged registration and is never tagged
+    REQUIRE(registry.update(1001U, 10U, 10U, false, 180U, true));
+    REQUIRE(registry.updateRoaming(home, 20U, 190U));
+    CHECK_FALSE(registry.resolveSuid(home, 190U).p25Registered);
+}
+
 TEST_CASE("FNE unit route registry without a P25 identity keys bare Unit IDs under zero WACN and System ID",
     "[fne][routing][registry][roaming]")
 {

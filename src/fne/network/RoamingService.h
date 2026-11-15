@@ -97,9 +97,10 @@ namespace network
          */
         virtual bool isHomeUnitAuthorized(uint32_t unitId) = 0;
         /**
-         * @brief Finds the home site (host peer) where a home unit is registered.
+         * @brief Finds the home site (host peer) where a home unit holds a P25 registration. Radios of other
+         *  protocols may share the unit number, so only a P25-tagged unit registration counts.
          * @param unitId Home Unit ID.
-         * @returns uint32_t Host peer ID, or 0 when not registered on a home site.
+         * @returns uint32_t Host peer ID, or 0 when not P25-registered on a home site.
          */
         virtual uint32_t findLocalUnitPeer(uint32_t unitId) = 0;
         /**

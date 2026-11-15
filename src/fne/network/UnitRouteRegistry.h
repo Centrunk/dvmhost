@@ -44,6 +44,8 @@ namespace network
         bool learned = false;        //!< True when learned from validated traffic rather than registration.
         bool roamed = false;         //!< True when stored by P25 roaming for a unit served through another link; only SUID
                                      //!<  lookups see it (bare Unit ID lookups ignore it until sub-project 3d).
+        bool p25Registered = false;  //!< True when the current explicit registration was a P25-tagged unit registration
+                                     //!<  announcement (never set for learned, roaming or bulk snapshot routes).
         bool valid = false;          //!< True when the resolved route is current.
     };
 
@@ -84,9 +86,11 @@ namespace network
          * @param ssrc Advertised route origin or immediate peer SSRC.
          * @param learned True for a traffic-learned route; false for an explicit registration.
          * @param nowMs Update time in milliseconds.
+         * @param p25Registered True when an explicit registration was a P25-tagged unit registration announcement;
+         *  ignored for a learned route. Traffic refreshing an existing explicit route keeps its value.
          * @returns bool True when a valid route was stored; otherwise, false.
          */
-        bool update(uint32_t unitId, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs);
+        bool update(uint32_t unitId, uint32_t peerId, uint32_t ssrc, bool learned, uint64_t nowMs, bool p25Registered = false);
         /**
          * @brief Adds or refreshes a route for a SUID.
          * @param suid Subscriber SUID.
@@ -107,7 +111,9 @@ namespace network
          */
         bool updateRoaming(const roaming::SUID& suid, uint32_t peerId, uint64_t nowMs);
         /**
-         * @brief Replaces all explicit own-system routes learned through one peer (roaming routes are kept).
+         * @brief Replaces all explicit own-system routes learned through one peer (roaming routes are kept). The
+         *  snapshot carries no protocol: a listed unit keeps the P25 tag of the same peer's explicit registration and
+         *  every other listed route is untagged.
          * @param peerId Immediate next-hop peer ID.
          * @param unitIds Complete registration snapshot for the peer.
          * @param ssrc Advertised route origin or immediate peer SSRC.
@@ -190,9 +196,11 @@ namespace network
          * @param learned True for a traffic-learned route.
          * @param roamed True for a P25 roaming route.
          * @param nowMs Update time in milliseconds.
+         * @param p25Registered True for a P25-tagged explicit registration (ignored for a learned route).
          * @returns bool True when a valid route was stored; otherwise, false.
          */
-        bool storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, bool roamed, uint64_t nowMs);
+        bool storeLocked(const roaming::SUID& suid, uint32_t peerId, uint32_t ssrc, bool learned, bool roamed, uint64_t nowMs,
+            bool p25Registered);
         /**
          * @brief Removes a route owned by a peer (caller holds m_mutex).
          * @param key Packed SUID.
