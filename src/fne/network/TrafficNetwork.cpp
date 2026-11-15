@@ -1054,13 +1054,15 @@ void TrafficNetwork::clock(uint32_t ms)
     m_globalAff->clock(ms);
 
     // P25 roaming: expire transactions and home records, track upstream links and re-check home authorization
-    //  against the RID ACL (the 5 s interval also catches REST ACL edits; spec 4.4)
-    m_roaming->clock(now);
-    updateUpstreamRoamingLinks();
-    m_roamingRevalidateTimer.clock(ms);
-    if (m_roamingRevalidateTimer.isRunning() && m_roamingRevalidateTimer.hasExpired()) {
-        m_roaming->revalidateHomeRecords(now);
-        m_roamingRevalidateTimer.start();
+    //  against the RID ACL (the 5 s interval also catches REST ACL edits)
+    if (m_roamingConfig.enabled()) {
+        m_roaming->clock(now);
+        updateUpstreamRoamingLinks();
+        m_roamingRevalidateTimer.clock(ms);
+        if (m_roamingRevalidateTimer.isRunning() && m_roamingRevalidateTimer.hasExpired()) {
+            m_roaming->revalidateHomeRecords(now);
+            m_roamingRevalidateTimer.start();
+        }
     }
 
     // if HA is enabled perform HA parameter updates
