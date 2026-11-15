@@ -100,7 +100,7 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                         roaming::RoamingPeerConfig peerRoaming;
                         const RoamingLogin::E roamingLogin = network->m_roamingConfig.evaluateLogin(offered, neighborOffer, peerRoaming);
                         if (roamingLogin == RoamingLogin::REJECT_MISMATCH) {
-                            LogError(LOG_MASTER, "PEER %u RPTC NAK, P25 identity mismatch, peer netId = $%05X, sysId = $%03X, system netId = $%05X, sysId = $%03X, check the host rfssConfig netId and sysId",
+                            LogError(LOG_MASTER, "PEER %u RPTC NAK, P25 identity mismatch, peer netId = $%05X, sysId = $%03X, system netId = $%05X, sysId = $%03X",
                                 peerId, peerRoaming.netId, peerRoaming.sysId, network->m_roamingConfig.netId(), network->m_roamingConfig.sysId());
                             network->writePeerNAK(peerId, TAG_REPEATER_CONFIG, NET_CONN_NAK_INVALID_CONFIG_DATA, req->address, req->addrLen);
                             network->disconnectPeer(peerId, connection);
@@ -122,7 +122,7 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                                 offeredIdentity = ident->second.get<std::string>();
                             }
 
-                            LogWarning(LOG_MASTER, "PEER %u (%s) downstream FNE offers this system's own P25 identity, netId = $%05X, sysId = $%03X; only the home FNE of a system may set p25NetId/p25SysId, link is not P25 roaming capable",
+                            LogWarning(LOG_MASTER, "PEER %u (%s) downstream FNE offers this system's own P25 identity, netId = $%05X, sysId = $%03X, link is not roaming capable",
                                 peerId, offeredIdentity.c_str(), peerRoaming.netId, peerRoaming.sysId);
                         }
 
