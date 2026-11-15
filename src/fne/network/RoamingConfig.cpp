@@ -60,7 +60,7 @@ RoamingConfigLoad::E RoamingConfig::load(yaml::Node& systemConf)
         return RoamingConfigLoad::INVALID;
     }
 
-    // both zero is the same as both absent: no P25 identity (spec 2.1)
+    // both zero is the same as both absent: no P25 identity
     if (netId == 0U && sysId == 0U) {
         return RoamingConfigLoad::OK;
     }
@@ -106,7 +106,7 @@ RoamingLogin::E RoamingConfig::evaluateLogin(const json::object& peerConfig, boo
     peer = RoamingPeerConfig();
     const bool offered = RoamingCodec::parseConfig(peerConfig, peer);
 
-    // an FNE without an identity never negotiates roaming (spec 2.1)
+    // an FNE without an identity never negotiates roaming
     if (!m_enabled) {
         return RoamingLogin::NOT_CAPABLE;
     }
@@ -117,7 +117,7 @@ RoamingLogin::E RoamingConfig::evaluateLogin(const json::object& peerConfig, boo
         return RoamingLogin::REJECT_PROTECTED_WACN;
     }
 
-    // a host belongs to this system; a different WACN ID or System ID would break every home decision (spec 2.2)
+    // a host belongs to this system; a different WACN ID or System ID would break every home decision
     if (!neighbor && offered && (peer.netId != m_netId || peer.sysId != m_sysId)) {
         return RoamingLogin::REJECT_MISMATCH;
     }

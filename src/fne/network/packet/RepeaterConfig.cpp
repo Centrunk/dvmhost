@@ -93,7 +93,7 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                         network->disconnectPeer(peerId, connection);
                     }
                     else {
-                        // validate the P25 identity before any connection state changes (spec 2.2, 3.1)
+                        // validate the P25 identity before any connection state changes
                         json::object offered = v.get<json::object>();
                         // the neighbor decision uses the same precedence as the peer class assigned below
                         const bool neighborOffer = resolveOfferedPeerClass(offered) == PEER_CONN_CLASS_NEIGHBOR;
@@ -146,7 +146,7 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                         // attach extra notification data to the RPTC ACK to notify the peer of 
                         // the use of the alternate diagnostic port
                         // payload byte 0 bit 7 always marks the alternate diagnostics port; bit 6 and the master P25
-                        //  identity are added when this FNE has a P25 identity (spec 3.1)
+                        //  identity are added when this FNE has a P25 identity
                         uint8_t buffer[roaming::CONFIG_ACK_ROAMING_LEN];
                         ::memset(buffer, 0x00U, sizeof(buffer));
                         uint32_t ackLength = network->m_roamingConfig.buildConfigAck(buffer, sizeof(buffer));
@@ -303,7 +303,7 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
                             }
                         }
 
-                        // P25 roaming link state for the mobility service (spec 2.3, 2.4); raised before the ACK is
+                        // P25 roaming link state for the mobility service; raised before the ACK is
                         //  written so a ROAMING frame sent right after the ACK finds the link negotiated
                         RoamingLink roamingLink;
                         roamingLink.peerId = peerId;

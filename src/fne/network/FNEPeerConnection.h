@@ -280,7 +280,7 @@ namespace network
         DECLARE_PROPERTY_PLAIN(bool, isConventional);
 
         /**
-         * @brief Flag indicating P25 roaming was negotiated on this connection (spec 3.1).
+         * @brief Flag indicating P25 roaming was negotiated on this connection.
          */
         DECLARE_PROPERTY_PLAIN(bool, p25RoamingCapable);
 

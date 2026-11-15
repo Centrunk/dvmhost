@@ -2325,7 +2325,7 @@ void TrafficNetwork::erasePeer(uint32_t peerId)
         m_unitRouteRegistry.eraseSuid(suid, peerId);
     }
 
-    // pending roaming transactions over this link complete as FAILED (spec 6)
+    // pending roaming transactions over this link complete as FAILED
     RoamingLink roamingLink;
     roamingLink.peerId = peerId;
     roamingLink.upstream = false;
@@ -2452,7 +2452,8 @@ void TrafficNetwork::RoamingHostAdapter::removeLocalUnitRegistration(uint32_t pe
 void TrafficNetwork::RoamingHostAdapter::setUnitRoute(const roaming::SUID& suid, const RoamingLink& link)
 {
     // an upstream link's ID is a PeerNetwork key, not a downstream peer ID; the unit route table only holds
-    //  downstream peers, so upstream routing is not recorded here (designed in sub-project 3d)
+    //  downstream peers, so upstream routing is not recorded here.
+    //  TODO(P25-ROAM): route to units behind an upstream link; remove when the upstream link key is distinct from a peer ID
     if (link.upstream) {
         LogDebug(LOG_MASTER, "P25 ROAMING, UPSTREAM %u route for suid = $%05X.$%03X.$%06X not recorded", link.peerId, suid.netId, suid.sysId,
             suid.unitId);

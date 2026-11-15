@@ -191,7 +191,7 @@ TEST_CASE("FNE P25 roaming login evaluation and configuration ACK", "[fne][roami
     const RoamingConfig config = configFor(0xDEE00U, 0x13BU);
     RoamingPeerConfig peer;
 
-    // spec 3.1 example: WACN 912896 ($DEE00), System 315 ($13B)
+    // example: WACN 912896 ($DEE00), System 315 ($13B)
     CHECK(config.evaluateLogin(parseObject("{\"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 1}}"),
         false, peer) == RoamingLogin::CAPABLE);
     CHECK(peer.rfssId == 1U);
@@ -451,11 +451,11 @@ TEST_CASE("FNE accepts SUID announcements only from roaming-capable peers", "[fn
     };
     SuidRegistrationTable::Entry entry;
 
-    // a peer that did not negotiate roaming is ignored (spec 3.4)
+    // a peer that did not negotiate roaming is ignored
     announce(2002U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, unitBytes);
     CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
 
-    // malformed lengths change nothing (spec 6)
+    // malformed lengths change nothing
     announce(2001U, network::NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, std::vector<uint8_t>(unitBytes.begin(), unitBytes.end() - 1));
     CHECK_FALSE(FNETestHooks::findSuidRegistration(harness.traffic, roamer, entry));
 
@@ -921,7 +921,7 @@ TEST_CASE("FNE RPTC handler answers with the exact roaming ACK and identity-mism
     std::vector<FNETestHooks::PeerWrite> writes;
     FNETestHooks::capturePeerWriteData(harness.traffic, writes);
 
-    // ACK: peer ID (4), 2 zero bytes, then the 6-byte roaming payload (spec 3.1) and the 4-byte zero trailer
+    // ACK: peer ID (4), 2 zero bytes, then the 6-byte roaming payload and the 4-byte zero trailer
     FNETestHooks::addPeer(harness.traffic, 1001U, network::NET_STAT_WAITING_CONFIG);
     FNETestHooks::dispatchTraffic(harness.traffic, network::NET_FUNC::RPTC, network::NET_SUBFUNC::NOP, 1001U,
         rptcPacket("{\"identity\": \"SITE315\", \"peerClass\": 0, \"p25Roaming\": {\"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 2}}"));

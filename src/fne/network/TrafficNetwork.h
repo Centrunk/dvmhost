@@ -349,7 +349,7 @@ namespace network
         void setPeerReplica(bool replica);
 
         /**
-         * @brief Sets this FNE's P25 system identity and roaming parameters (spec 2.1, 7). Call before open().
+         * @brief Sets this FNE's P25 system identity and roaming parameters. Call before open().
          * @param config Loaded roaming configuration.
          */
         void setP25RoamingConfig(const RoamingConfig& config);
@@ -989,7 +989,7 @@ namespace network
          */
         void publishAggregatedAffiliations(const std::unordered_map<uint32_t, uint32_t>& affiliations);
         /**
-         * @brief Applies a SUID announcement (spec 3.4) from a roaming-capable peer to the SUID tables.
+         * @brief Applies a SUID announcement from a roaming-capable peer to the SUID tables.
          * @param peerId Announcing peer ID.
          * @param ssrc RTP synchronization source ID.
          * @param subFunc Announcement sub-function (ANNC_SUBFUNC_*_SUID).

@@ -228,7 +228,7 @@ TEST_CASE("Multi-FNE harness carries Serving Registration, refresh, Home Deregis
 
     const SUID roamer = { 0xDEE00U, 0x911U, 0x0F4240U };
 
-    // cross-system Serving Registration: host on $13B -> FNE A -> FNE B (home) -> FNE A -> host (spec 4.1)
+    // cross-system Serving Registration: host on $13B -> FNE A -> FNE B (home) -> FNE A -> host
     REQUIRE(hostA.client.requestRegistration(roamer, true) == P25RoamingClient::RequestResult::SENT);
     REQUIRE(hostA.outcomes.size() == 1U);
     CHECK(hostA.outcomes[0U] == P25RoamingClient::Outcome::SUCCESS);
@@ -243,7 +243,7 @@ TEST_CASE("Multi-FNE harness carries Serving Registration, refresh, Home Deregis
     CHECK(fneA.service.pendingCount() == 0U);
     CHECK(fneB.service.pendingCount() == 0U);
 
-    // refresh at 80 % of expires renews the home record (spec 4.2)
+    // refresh at 80 % of expires renews the home record
     g_now = 14400000U;
     hostA.client.clock(14400000U);
     REQUIRE(hostA.outcomes.size() == 2U);
@@ -251,7 +251,7 @@ TEST_CASE("Multi-FNE harness carries Serving Registration, refresh, Home Deregis
     REQUIRE(fneB.service.homeRecords().size() == 1U);
     CHECK(fneB.service.homeRecords()[0U].expiresAtMs == 14400000U + 18000000U);
 
-    // the SU moves to $222 behind FNE C: the home deregisters the old serving RFSS (Roamed, spec 4.1 step 5.3)
+    // the SU moves to $222 behind FNE C: the home deregisters the old serving RFSS (Roamed)
     REQUIRE(hostC.client.requestRegistration(roamer, true) == P25RoamingClient::RequestResult::SENT);
     CHECK(hostC.client.isRoamer(roamer));
     REQUIRE(fneB.service.homeRecords().size() == 1U);
@@ -263,7 +263,7 @@ TEST_CASE("Multi-FNE harness carries Serving Registration, refresh, Home Deregis
     CHECK(fneB.service.pendingCount() == 0U);
     CHECK(fneB.routes[roamer.pack()] == bToC);
 
-    // Serving Deregistration from the new serving host clears the home record and route (spec 4.3)
+    // Serving Deregistration from the new serving host clears the home record and route
     CHECK(hostC.client.servingDeregistration(roamer));
     CHECK(fneB.service.homeRecords().empty());
     CHECK(fneC.service.servingRecords().empty());
@@ -321,7 +321,7 @@ TEST_CASE("Multi-FNE harness denies an unknown home unit and fails a request who
     CHECK(fneA.service.pendingCount() == 1U);
     CHECK(hostA.outcomes.size() == 1U);
 
-    // dropping the link completes the pending transaction at FNE A (spec 6); FAILED is a local outcome that is never
+    // dropping the link completes the pending transaction at FNE A; FAILED is a local outcome that is never
     // encoded, so FNE A sends nothing and the host is still waiting
     fneA.service.linkDown(aToB);
     CHECK(fneA.service.pendingCount() == 0U);
@@ -460,7 +460,7 @@ TEST_CASE("Multi-FNE harness keeps a moved roamer when the old serving RFSS miss
     REQUIRE(hostA.client.isRoamer(roamer));
 
     // host A's timer refresh (presence Not Confirmed) must not take the SU back: the home answers
-    //  MME_MUST_CONFIRM_SU_PRESENCE and host A releases the roamer silently (spec 4.2)
+    //  MME_MUST_CONFIRM_SU_PRESENCE and host A releases the roamer silently
     g_now = 14400000U;
     hostA.client.clock(14400000U);
     REQUIRE(hostA.outcomes.size() == 2U);

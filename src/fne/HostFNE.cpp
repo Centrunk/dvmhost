@@ -684,7 +684,7 @@ bool HostFNE::createMasterNetwork()
 
     m_network->setLookups(m_ridLookup, m_ridAliasLookup, m_tidLookup, m_peerListLookup, m_cryptoLookup, m_adjSiteMapLookup);
 
-    // P25 system identity and roaming parameters (spec 2.1, 7)
+    // P25 system identity and roaming parameters
     network::RoamingConfig roamingConfig;
     switch (roamingConfig.load(systemConf)) {
     case network::RoamingConfigLoad::PROTECTED_WACN:
@@ -931,7 +931,7 @@ bool HostFNE::createPeerNetworks()
             network->setMetadata(identity, 0U, 0U, 0.0F, 0.0F, 0, 0, 0, latitude, longitude, 0, location);
             network->setLookups(m_ridLookup, m_tidLookup);
             network->setMasterPeerId(masterPeerId);
-            // offer this FNE's P25 identity to the upstream master (spec 2.3)
+            // offer this FNE's P25 identity to the upstream master
             if (m_network != nullptr && m_network->p25RoamingConfig().enabled()) {
                 network->setP25RoamingIdentity(m_network->p25RoamingConfig().netId(), m_network->p25RoamingConfig().sysId(), 0U);
             }
@@ -962,7 +962,7 @@ bool HostFNE::createPeerNetworks()
             network->setNetTreeDiscCallback(std::bind(&HostFNE::processNetworkTreeDisconnect, this, std::placeholders::_1, std::placeholders::_2));
             network->setNotifyPeerReplicaCallback(std::bind(&HostFNE::processPeerReplicaNotify, this, std::placeholders::_1));
             network->setPatchStatusCallback(std::bind(&HostFNE::processPeerPatchStatus, this, std::placeholders::_1, std::placeholders::_2));
-            // P25 ROAMING messages from the upstream master go to the mobility service (spec 4)
+            // P25 ROAMING messages from the upstream master go to the mobility service
             network->setP25RoamingCallback([this, id](uint8_t subFunc, const uint8_t* data, uint32_t length) {
                 if (m_network != nullptr) {
                     m_network->processUpstreamRoaming(id, subFunc, data, length);

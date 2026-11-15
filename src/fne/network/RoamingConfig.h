@@ -61,7 +61,7 @@ namespace network
     // ---------------------------------------------------------------------------
 
     /**
-     * @brief Holds this FNE's P25 system identity and roaming parameters (spec 2.1, 7) and evaluates peer logins.
+     * @brief Holds this FNE's P25 system identity and roaming parameters and evaluates peer logins.
      * @ingroup fne_network
      */
     class HOST_SW_API RoamingConfig {
@@ -108,7 +108,7 @@ namespace network
         uint32_t expires() const { return m_expires; }
 
         /**
-         * @brief Evaluates the p25Roaming object of an RPTC configuration (spec 2.2, 3.1).
+         * @brief Evaluates the p25Roaming object of an RPTC configuration.
          * @param peerConfig RPTC configuration JSON.
          * @param neighbor Flag indicating the peer is a downstream FNE (expected to be another system; one offering this
          *  system's identity is answered SAME_SYSTEM_FNE).

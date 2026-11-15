@@ -2871,7 +2871,7 @@ void RESTAPI::restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload
         return;
     }
 
-    // the home sends Forced queries only on operator request (spec 4.5)
+    // the home sends Forced queries only on operator request
     const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (!m_network->roaming()->forcedQuery(suid, now)) {
         LogWarning(LOG_REST, "P25 ROAMING, operator Forced query rejected, suid = $%05X.$%03X.$%06X, no home location record", suid.netId, suid.sysId, suid.unitId);

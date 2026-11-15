@@ -42,7 +42,7 @@ void TrafficNetwork::PacketHandler::roaming(TrafficNetwork* network, NetPacketRe
         return;
     }
 
-    // the service checks the link's negotiated capability before parsing (spec 6)
+    // the service checks the link's negotiated capability before parsing
     RoamingLink link;
     link.peerId = peerId;
     link.upstream = false;

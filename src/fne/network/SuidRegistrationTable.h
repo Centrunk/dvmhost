@@ -31,8 +31,8 @@ namespace network
     // ---------------------------------------------------------------------------
 
     /**
-     * @brief Stores foreign (roaming) SU registrations and group affiliations by packed SUID and owning peer
-     *  (spec 2.6, 3.4). Own-system units stay in the per-peer affiliation lookups keyed by bare Unit ID.
+     * @brief Stores foreign (roaming) SU registrations and group affiliations by packed SUID and owning peer.
+     *  Own-system units stay in the per-peer affiliation lookups keyed by bare Unit ID.
      * @ingroup fne_network
      */
     class HOST_SW_API SuidRegistrationTable {

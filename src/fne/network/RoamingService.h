@@ -129,7 +129,7 @@ namespace network
 
     /**
      * @brief Implements the FNE side of P25 unit mobility (TIA-102.BACA-B Home and Serving RFSS functions carried
-     *  over DVM ROAMING messages, spec 3.5 and 4): routing, transactions, home location and served-roamer tables.
+     *  over DVM ROAMING messages): routing, transactions, home location and served-roamer tables.
      * @ingroup fne_network
      */
     class HOST_SW_API RoamingService {
@@ -147,7 +147,7 @@ namespace network
         };
 
         /**
-         * @brief Served-roamer record for a roamer registered behind this FNE (spec 4.1 step 6).
+         * @brief Served-roamer record for a roamer registered behind this FNE.
          * @ingroup fne_network
          */
         struct ServingRecord {
@@ -220,7 +220,7 @@ namespace network
          */
         void clock(uint64_t nowMs);
         /**
-         * @brief Sends Non-Roamed Home Deregistration for home records whose unit is no longer authorized (spec 4.4).
+         * @brief Sends Non-Roamed Home Deregistration for home records whose unit is no longer authorized.
          * @param nowMs Current time in milliseconds.
          */
         void revalidateHomeRecords(uint64_t nowMs);
@@ -232,7 +232,7 @@ namespace network
          */
         void localRegistration(uint32_t unitId, uint64_t nowMs);
         /**
-         * @brief Sends a Forced query to the serving RFSS of a home SU (operator request, spec 4.5).
+         * @brief Sends a Forced query to the serving RFSS of a home SU (operator request).
          * @param suid Home SUID.
          * @param nowMs Current time in milliseconds.
          * @returns bool True if sent; false if no home record exists.

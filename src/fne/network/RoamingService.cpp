@@ -96,7 +96,7 @@ void RoamingService::linkUp(const RoamingLink& link, bool capable, bool fne, uin
     state.sysId = sysId;
     m_links[link.key()] = state;
 
-    // each FNE keeps a table (WACN, System ID) -> peer link (spec 2.3)
+    // each FNE keeps a table (WACN, System ID) -> peer link
     if (capable && fne && netId != 0U && sysId != 0U && !isOwnSystem(netId, sysId)) {
         m_systems[SUID::systemKey(netId, sysId)] = link;
     }
@@ -138,7 +138,7 @@ void RoamingService::linkDown(const RoamingLink& link)
         selectUpstreamDefault();
     }
 
-    // transactions using the link complete as FAILED; FAILED is never sent on the wire (spec 6)
+    // transactions using the link complete as FAILED; FAILED is never sent on the wire
     uint32_t failed = 0U;
     for (auto it = m_pending.begin(); it != m_pending.end();) {
         if (it->first.first == link.key() || it->second.ingress == link) {
@@ -159,7 +159,7 @@ void RoamingService::linkDown(const RoamingLink& link)
         }
     }
 
-    // home records stay until expires (spec 6)
+    // home records stay until expires
     if (failed > 0U) {
         LogWarning(LOG_MASTER, "P25 ROAMING, %s %u link down, %u pending transaction(s) completed as FAILED", linkName(link), link.peerId, failed);
     }
@@ -231,7 +231,7 @@ void RoamingService::process(const RoamingLink& ingress, uint8_t subFunc, const 
         return;
     }
 
-    // home authorization lookups take their own locks, so they run before the service lock (spec 4.1 step 5)
+    // home authorization lookups take their own locks, so they run before the service lock
     bool authorized = false;
     uint32_t localPeer = 0U;
     if (msg.subFunc == NET_SUBFUNC::ROAM_SERVING_REG) {
@@ -564,7 +564,7 @@ void RoamingService::handleRequest(ActionList& actions, const RoamingLink& ingre
             handleHomeServingDereg(actions, ingress, msg);
         }
         else {
-            // the roamer is no longer served behind the ingress link (spec 4.3)
+            // the roamer is no longer served behind the ingress link
             auto it = m_serving.find(msg.suid.pack());
             if (it != m_serving.end() && it->second.link == ingress) {
                 m_serving.erase(it);
@@ -598,7 +598,7 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
     const uint64_t key = msg.suid.pack();
     auto existing = m_home.find(key);
 
-    // a duplicate of an accepted request gets the same answer and changes nothing (spec 6)
+    // a duplicate of an accepted request gets the same answer and changes nothing
     if (existing != m_home.end() && existing->second.lastTxnId == msg.txnId && existing->second.link == ingress) {
         LogInfoEx(LOG_MASTER, "P25 ROAMING, %s %u duplicate Serving Registration, suid = $%05X.$%03X.$%06X, txnId = %08X, answered SUCCESS",
             linkName(ingress), ingress.peerId, msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId);
@@ -650,7 +650,7 @@ void RoamingService::handleHomeServingReg(ActionList& actions, const RoamingLink
         sendHomeDereg(actions, previous.link, msg.suid, RoamQualifier::ROAMED, nowMs);
     }
 
-    // internal silent Roamed deregistration of the home's own site (spec 4.1 step 5.4, 4.4)
+    // internal silent Roamed deregistration of the home's own site
     if (localPeer != 0U) {
         RoamingLink site;
         site.peerId = localPeer;
