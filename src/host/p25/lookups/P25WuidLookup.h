@@ -84,11 +84,6 @@ namespace p25
             void clear();
 
             /**
-             * @brief Gets whether a WUID pool is configured.
-             * @returns bool True if a pool is configured; otherwise, false.
-             */
-            bool enabled() const;
-            /**
              * @brief Gets the first WUID of the pool.
              * @returns uint32_t First WUID, or 0 if no pool is configured.
              */

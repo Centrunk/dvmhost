@@ -36,12 +36,12 @@ TEST_CASE("P25 WUID lookup range validation", "[p25][roaming][wuid]") {
 
 TEST_CASE("P25 WUID lookup is inert without a pool", "[p25][roaming][wuid]") {
     P25WuidLookup lookup;
-    CHECK_FALSE(lookup.enabled());
+    CHECK(lookup.poolStart() == 0U);
     CHECK_FALSE(lookup.isPoolWuid(0U));
     CHECK_FALSE(lookup.isPoolWuid(9000000U));
     CHECK(lookup.allocate(suid(0x002U, 1001U)) == 0U);
     CHECK_FALSE(lookup.setPool(0U, 10U));
-    CHECK_FALSE(lookup.enabled());
+    CHECK(lookup.poolStart() == 0U);
 }
 
 TEST_CASE("P25 WUID lookup allocation", "[p25][roaming][wuid]") {
@@ -94,7 +94,7 @@ TEST_CASE("P25 WUID lookup allocation", "[p25][roaming][wuid]") {
         CHECK_FALSE(lookup.release(1234U));
         lookup.allocate(suid(0x002U, 1U));
         lookup.clear();
-        CHECK_FALSE(lookup.enabled());
+        CHECK(lookup.poolStart() == 0U);
         CHECK(lookup.count() == 0U);
     }
 }

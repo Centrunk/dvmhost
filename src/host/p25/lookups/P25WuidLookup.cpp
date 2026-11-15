@@ -71,14 +71,6 @@ void P25WuidLookup::clear()
     m_end = 0U;
 }
 
-/* Gets whether a WUID pool is configured. */
-
-bool P25WuidLookup::enabled() const
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return m_start != 0U;
-}
-
 /* Gets the first WUID of the pool. */
 
 uint32_t P25WuidLookup::poolStart() const

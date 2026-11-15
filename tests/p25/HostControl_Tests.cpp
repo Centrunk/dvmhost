@@ -2643,14 +2643,14 @@ TEST_CASE("P25 roaming configuration rejects invalid settings", "[p25][host][roa
     HostTestHooks::p25SetSiteData(*harness.m_control, p25::SiteData(0xBB800U, 0x001U, 1U, 1U, 1U, 1U, 1U, 0x00U, 0));
 
     CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 0U, 0U));
-    CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+    CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->poolStart() == 0U);
     CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, {}, 200U, 100U));
     CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, { 0x001U }, 9000000U, 9000010U));
     CHECK_FALSE(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, { 0x1000U }, 9000000U, 9000010U));
     CHECK(HostTestHooks::p25ConfigureRoaming(*harness.m_control, true, { 0x002U }, 9000000U, 9000010U));
-    CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+    CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->poolStart() != 0U);
     CHECK(HostTestHooks::p25ConfigureRoaming(*harness.m_control, false, {}, 0U, 0U));
-    CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->enabled());
+    CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->poolStart() == 0U);
 
     p25::lc::TSBK::setSiteData(previous);
 }
