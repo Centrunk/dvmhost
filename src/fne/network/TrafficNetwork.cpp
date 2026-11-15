@@ -2095,6 +2095,7 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
     const bool p25Registered = protocol == NET_SUBFUNC::PROTOCOL_SUBFUNC_P25;
 
     std::vector<uint32_t> aggregate;
+    const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
     if (srcId == P25DEF::WUID_FNE) {
         LogWarning(LOG_MASTER, "PEER %u ignoring unit registration for FNE source ID", peerId);
@@ -2110,7 +2111,6 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
 
         registrations->unitReg(srcId, ssrc, log);
 
-        const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         m_unitRouteRegistry.update(srcId, peerId, ssrc, false, now, p25Registered);
 
         aggregate = buildAggregatedUnitRegistrations();
@@ -2121,14 +2121,13 @@ bool TrafficNetwork::updatePeerUnitRegistration(uint32_t peerId, uint32_t srcId,
     // a home SU registering on a home site ends any registration at a serving RFSS (BACA 5.1); a downstream
     //  neighbor FNE is another system, never a home site of this one. Radios of other protocols may share the unit number, so only a P25-tagged
     //  registration counts; an untagged one (older host), DMR or NXDN never releases a roamer
-    if (!p25Registered) {
+    if (!p25Registered || !m_roamingConfig.enabled()) {
         return true;
     }
 
     PeerConnectionPtr registrar = findPeer(peerId);
     if (registrar == nullptr || registrar->peerClass() != PEER_CONN_CLASS_NEIGHBOR) {
-        const uint64_t roamNow = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        m_roaming->localRegistration(srcId, roamNow);
+        m_roaming->localRegistration(srcId, now);
     }
     return true;
 }
