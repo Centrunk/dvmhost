@@ -118,7 +118,7 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        // a registration from the SU answers an outstanding Forced query (spec 4.5)
+        // a registration from the SU answers an outstanding Forced query
         if (confirmed) {
             auto roamer = m_roamers.find(key);
             if (roamer != m_roamers.end()) {
@@ -126,7 +126,7 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
             }
         }
 
-        // retries while pending are answered with ACK_RSP_FNE only (spec 4.1 step 3)
+        // retries while pending are answered with ACK_RSP_FNE only
         auto pending = m_pending.find(key);
         if (pending != m_pending.end()) {
             if (confirmed) {
@@ -135,7 +135,7 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
             return RequestResult::PENDING;
         }
 
-        // no new request within RetryTime of a FAILED outcome (spec 4.1 step 8); the marker a deregistration leaves
+        // no new request within RetryTime of a FAILED outcome; the marker a deregistration leaves
         //  does not hold off a new request, whose own response then supersedes the abandoned transaction
         auto hold = m_holdOff.find(key);
         if (hold != m_holdOff.end() && hold->second.deregistered) {
@@ -146,7 +146,7 @@ P25RoamingClient::RequestResult P25RoamingClient::requestRegistration(const SUID
         }
 
         if (!capable) {
-            // the next clock() that sees the link capable again resynchronises every held roamer (spec 6)
+            // the next clock() that sees the link capable again resynchronises every held roamer
             m_linkDown = true;
             return RequestResult::NOT_CAPABLE;
         }
@@ -187,7 +187,7 @@ bool P25RoamingClient::servingDeregistration(const SUID& suid)
         auto pending = m_pending.find(key);
         if (pending != m_pending.end()) {
             // the SU leaves before the home answered its first registration: a late success must still be
-            //  deregistered, or the home records the SU as served here until expires (spec 4.1 step 9)
+            //  deregistered, or the home records the SU as served here until expires
             if (!held) {
                 HoldOff hold;
                 hold.remainingMs = ROAM_RETRY_TIME_MS;
@@ -336,7 +336,7 @@ void P25RoamingClient::processMessage(uint8_t subFunc, const uint8_t* data, uint
         }
         break;
     case NET_SUBFUNC::ROAM_SERVING_DEREG_RSP:
-        // any response completes a Serving Deregistration (spec 4.3)
+        // any response completes a Serving Deregistration
         LogInfoEx(LOG_P25, "P25 ROAMING, Serving Deregistration complete, suid = $%05X.$%03X.$%06X, txnId = %08X, result = $%02X",
             msg.suid.netId, msg.suid.sysId, msg.suid.unitId, msg.txnId, msg.result);
         break;
@@ -371,7 +371,7 @@ void P25RoamingClient::clock(uint32_t ms)
         for (auto it = m_pending.begin(); it != m_pending.end();) {
             it->second.elapsedMs += ms;
 
-            // without a roaming link no response can arrive, so a pending entry completes as FAILED at once (spec 6)
+            // without a roaming link no response can arrive, so a pending entry completes as FAILED at once
             if (!capable || it->second.elapsedMs >= m_homeTimeoutMs) {
                 failed.push_back(it->second);
                 it = m_pending.erase(it);
@@ -407,13 +407,13 @@ void P25RoamingClient::clock(uint32_t ms)
 
             const bool pending = m_pending.find(it->first) != m_pending.end();
             if (linkRestored && !pending) {
-                // on reconnect the host re-registers every roamer it holds (spec 6)
+                // on reconnect the host re-registers every roamer it holds
                 startRefresh(actions, roamer, serving);
             }
             else {
                 roamer.refreshMs = (roamer.refreshMs > ms) ? (roamer.refreshMs - ms) : 0U;
                 if (roamer.refreshMs == 0U && !pending) {
-                    // the home owns expiry; refresh at 80 % of expires (spec 4.2)
+                    // the home owns expiry; refresh at 80 % of expires
                     if (capable && m_holdOff.find(it->first) == m_holdOff.end()) {
                         startRefresh(actions, roamer, serving);
                     }
@@ -578,7 +578,7 @@ void P25RoamingClient::completeOutcome(const SUID& suid, uint32_t txnId, Outcome
             m_roamers.erase(key);
         }
 
-        // the home must not believe the SU is served here (spec 4.1 step 9)
+        // the home must not believe the SU is served here
         LogWarning(LOG_P25, "P25 ROAMING, home accepted an SU that is not admitted here, suid = $%05X.$%03X.$%06X", suid.netId, suid.sysId,
             suid.unitId);
         sendServingDereg(suid);
@@ -591,8 +591,8 @@ void P25RoamingClient::completeOutcome(const SUID& suid, uint32_t txnId, Outcome
         hold.remainingMs = ROAM_RETRY_TIME_MS;
         hold.txnId = txnId;
 
-        // a failed refresh keeps the roamer and retries after RetryTime (spec 4.2, 6); a late success for it must not
-        //  deregister an SU that is still served here, so only an SU that is not held counts as denied (spec 4.1 step 9)
+        // a failed refresh keeps the roamer and retries after RetryTime; a late success for it must not
+        //  deregister an SU that is still served here, so only an SU that is not held counts as denied
         auto roamer = m_roamers.find(key);
         if (roamer != m_roamers.end()) {
             roamer->second.refreshMs = ROAM_RETRY_TIME_MS;
@@ -669,7 +669,7 @@ void P25RoamingClient::handleRegResponse(const RoamingMessage& msg, bool general
             outcome = Outcome::REJECTED;
             break;
         default:
-            // an unknown result code is treated as FAILED (spec 6)
+            // an unknown result code is treated as FAILED
             LogWarning(LOG_P25, "P25 ROAMING, unknown result $%02X, treated as FAILED, suid = $%05X.$%03X.$%06X", msg.result, suid.netId,
                 suid.sysId, suid.unitId);
             outcome = Outcome::FAILED;
@@ -684,7 +684,7 @@ void P25RoamingClient::handleRegResponse(const RoamingMessage& msg, bool general
 
 void P25RoamingClient::handleHomeDereg(const RoamingMessage& msg)
 {
-    // forget first so the release sends no Serving Deregistration (spec 4.4)
+    // forget first so the release sends no Serving Deregistration
     bool found = false;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -692,7 +692,7 @@ void P25RoamingClient::handleHomeDereg(const RoamingMessage& msg)
         m_pending.erase(msg.suid.pack());
     }
 
-    // Not Found only when neither the client nor the host holds a record of the SUID (spec 4.4)
+    // Not Found only when neither the client nor the host holds a record of the SUID
     if (m_homeDereg != nullptr && m_homeDereg(msg.suid, msg.qualifier)) {
         found = true;
     }
@@ -735,7 +735,7 @@ void P25RoamingClient::handleQuery(const RoamingMessage& msg)
         break;
     case RoamQueryType::FORCED:
         {
-            // the SU is commanded to re-register; no answer within roamingHomeTimeout ends its registration (spec 4.5)
+            // the SU is commanded to re-register; no answer within roamingHomeTimeout ends its registration
             if (held && m_regCmd != nullptr && m_regCmd(msg.suid)) {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 auto roamer = m_roamers.find(key);
@@ -752,7 +752,7 @@ void P25RoamingClient::handleQuery(const RoamingMessage& msg)
         }
         break;
     default:
-        // Confirmed and Serving queries are optional and answered unsupported (deviation D4)
+        // Confirmed and Serving queries are optional and answered unsupported
         rsp.result = RoamResult::GEN_PROC_UNSUPPORTED;
         rsp.interested = 0U;
         break;

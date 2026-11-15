@@ -35,7 +35,7 @@ namespace p25
         // ---------------------------------------------------------------------------
 
         /**
-         * @brief Implements the serving-side P25 roaming state of a dvmhost site (spec 4): Serving Registration
+         * @brief Implements the serving-side P25 roaming state of a dvmhost site: Serving Registration
          *  transactions toward the home system, the RetryTime hold-off, refresh at 80 % of expires, Forced-query
          *  timers and link resynchronisation. It owns no sockets; Control supplies the callbacks.
          * @ingroup host_lookups
@@ -139,7 +139,7 @@ namespace p25
              */
             RequestResult requestRegistration(const network::roaming::SUID& suid, bool confirmed);
             /**
-             * @brief Ends a home-registered roamer's registration here and tells the home (spec 4.3).
+             * @brief Ends a home-registered roamer's registration here and tells the home.
              * @param suid Roaming SUID.
              * @returns bool True if ROAM_SERVING_DEREG was sent; false if the SU was not a roamer or the link is down.
              */

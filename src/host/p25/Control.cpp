@@ -180,7 +180,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_control = new ControlSignaling(this, dumpTSBKData, debug, verbose);
     m_data = new Data(this, dumpPDUData, repeatPDU, debug, verbose);
 
-    // serving-side P25 roaming (spec 4); the outcome callback answers the SU on air
+    // serving-side P25 roaming; the outcome callback answers the SU on air
     m_roamingClient = new lookups::P25RoamingClient(network::roaming::ROAM_DEFAULT_HOME_TIMEOUT_MS);
     m_roamingClient->setContextProvider([this](network::roaming::RfssIdentity& serving) { return roamingContext(serving); });
     m_roamingClient->setSender([this](uint8_t subFunc, const uint8_t* data, uint32_t length) {
@@ -478,7 +478,7 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, const :
     uint32_t roamingWuidEnd = p25Protocol["roamingWuidEnd"].as<uint32_t>(0U);
     configureRoaming(allowRoaming, roamingSysIds, roamingWuidStart, roamingWuidEnd);
 
-    // FAILED Serving Registration policy (deviation D2) and the wait for the home's answer (spec 4.1 step 8, 7)
+    // FAILED Serving Registration policy and the wait for the home's answer
     m_roamingAllowUnverified = p25Protocol["roamingAllowUnverified"].as<bool>(false);
     uint32_t roamingHomeTimeout = p25Protocol["roamingHomeTimeout"].as<uint32_t>(network::roaming::ROAM_DEFAULT_HOME_TIMEOUT_MS);
     if (roamingHomeTimeout == 0U) {
@@ -1233,7 +1233,7 @@ void Control::clockSiteData(uint32_t ms)
                         }
                     }
 
-                    // home-registered roamers are announced by SUID on a roaming link (spec 5)
+                    // home-registered roamers are announced by SUID on a roaming link
                     if (m_network->isP25RoamingActive()) {
                         std::vector<network::roaming::SUID> suidRegs;
                         std::vector<network::roaming::SuidAnnouncement> suidAffs;
@@ -2788,7 +2788,7 @@ bool Control::roamingContext(network::roaming::RfssIdentity& serving) const
     serving.sysId = m_siteData.sysId();
     serving.rfssId = m_siteData.rfssId();
 
-    // a standalone host or an FNE link without roaming cannot reach a home system (spec 4.6)
+    // a standalone host or an FNE link without roaming cannot reach a home system
     return m_network != nullptr && m_network->isP25RoamingActive();
 }
 
@@ -2796,7 +2796,7 @@ bool Control::roamingContext(network::roaming::RfssIdentity& serving) const
 
 bool Control::processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_t qualifier)
 {
-    // the home's internal Roamed deregistration of its own site names a Home SU (spec 4.4): silent release
+    // the home's internal Roamed deregistration of its own site names a Home SU: silent release
     if (suid.netId == m_siteData.netId() && suid.sysId == m_siteData.sysId()) {
         if (m_wuidLookup->isPoolWuid(suid.unitId) || !m_affiliations->isUnitReg(suid.unitId)) {
             return false;
@@ -2812,12 +2812,12 @@ bool Control::processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_
         return false;
     }
 
-    // Non-Roamed (policy removal) commands the SU to re-register; Roamed sends nothing on air (spec 4.4)
+    // Non-Roamed (policy removal) commands the SU to re-register; Roamed sends nothing on air
     if (qualifier == network::roaming::RoamQualifier::NON_ROAMED && m_enableControl) {
         m_control->writeRF_TSDU_U_Reg_Cmd(wuid, true);
     }
 
-    // roamer services are denied until sub-projects 3c-3e, so no session of the SU exists to tear down; the
+    // roamer services are denied, so no session of the SU exists to tear down; the
     //  client already forgot the roamer, so the release sends no Serving Deregistration
     m_control->releaseRoamingSU(wsuid);
     return true;
@@ -2855,7 +2855,7 @@ bool Control::resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t&
         return false;
     }
 
-    // a receiver treats a zero WACN/System ID as its own system (spec 3.2)
+    // a receiver treats a zero WACN/System ID as its own system
     const bool ownSystem = (suid.netId == 0U && suid.sysId == 0U) ||
         (suid.netId == m_siteData.netId() && suid.sysId == m_siteData.sysId());
     if (ownSystem) {
@@ -2893,7 +2893,7 @@ void Control::processUnitDereg(uint32_t srcId, bool automatic)
             const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
 
             // a home-registered roamer leaving here (U_DE_REG_REQ, WUID expiry) is reported to its home and forgotten,
-            //  so a later registration asks the home again (spec 4.3); Home Deregistration and policy releases forget
+            //  so a later registration asks the home again; Home Deregistration and policy releases forget
             //  the roamer first, so they send nothing
             if (m_roamingClient->isRoamer(roamSuid)) {
                 m_roamingClient->servingDeregistration(roamSuid);

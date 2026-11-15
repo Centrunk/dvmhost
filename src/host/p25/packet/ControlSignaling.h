@@ -526,7 +526,7 @@ namespace p25
             void writeRF_TSDU_U_Reg_Rsp_Roaming(const lookups::P25WuidLookup::SUID& suid, uint8_t response, uint32_t wuid, const char* reason,
                 uint8_t mfId);
             /**
-             * @brief Applies a Serving Registration outcome on air (spec 4.1 step 7).
+             * @brief Applies a Serving Registration outcome on air.
              * @param suid Roaming SUID.
              * @param outcome Outcome.
              * @param profile Service profile from the home.
@@ -537,7 +537,7 @@ namespace p25
                 const lookups::P25RoamingClient::Profile& profile, bool onAir);
             /**
              * @brief Accepts a roaming SU the home authorized: answers REG_ACCEPT, runs the radio inhibit procedure when
-             *  the profile is inhibited, and announces the SUID (TIA-102.AABD-B 13.3; spec 4.1 step 7, 5).
+             *  the profile is inhibited, and announces the SUID (TIA-102.AABD-B 13.3).
              * @param suid Roaming SUID.
              * @param profile Service profile from the home.
              * @returns uint32_t WUID, or 0 when the pool is exhausted (nothing is sent on air).

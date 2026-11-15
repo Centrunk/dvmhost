@@ -2778,7 +2778,7 @@ TEST_CASE("P25 roaming registration outcomes", "[p25][host][roaming][registratio
     }
 
     SECTION("Roaming_Unverified_REG_FAIL_With_Pool_WUID_And_Home_System_ID") {
-        // no home system is reachable without a network; roamingAllowUnverified admits the SU locally (spec 4.6)
+        // no home system is reachable without a network; roamingAllowUnverified admits the SU locally
         prepareRoaming(harness, true, {});
         buildUnitRegRequest(0xBB800U, 0x002U, 1001U, raw);
         REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
@@ -2929,7 +2929,7 @@ static uint32_t registerUnit(P25HostHarness& harness, uint32_t netId, uint32_t s
     buildUnitRegRequest(netId, sysId, unitId, raw);
     REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
     REQUIRE(drainForTSBK(*harness.m_control, p25::defines::TSBKO::IOSP_U_REG, rsp, pduSeen));
-    // a Home SU is accepted; a roaming SU with no reachable home is admitted unverified (REG_FAIL, spec 4.6)
+    // a Home SU is accepted; a roaming SU with no reachable home is admitted unverified (REG_FAIL)
     const uint8_t response = (rsp[2U] >> 4) & 0x03U;
     REQUIRE((response == p25::defines::ResponseCode::ACCEPT || response == p25::defines::ResponseCode::FAIL));
     return getUint24(rsp, 7U);
@@ -3623,7 +3623,7 @@ TEST_CASE("P25 roaming Serving Registration through the home system", "[p25][hos
         CHECK(reg.serving == RfssIdentity{ 0xBB800U, 0x001U, 0x01U });
         CHECK(reg.presence == RoamPresence::CONFIRMED);
 
-        // a retry while pending gets ACK_RSP_FNE only (spec 4.1 step 3)
+        // a retry while pending gets ACK_RSP_FNE only
         REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
         tsbks = drainTSBKs(*harness.m_control);
         CHECK(findTSBK(tsbks, p25::defines::TSBKO::IOSP_ACK_RSP) != nullptr);
@@ -3979,7 +3979,7 @@ TEST_CASE("P25 roaming Serving Registration through the home system", "[p25][hos
         REQUIRE(HostTestHooks::p25ProcessRawTSBK(*harness.m_control, raw));
         drainTSBKs(*harness.m_control);
 
-        // no answer can arrive without a roaming link, so the next clock completes the request as FAILED (spec 6)
+        // no answer can arrive without a roaming link, so the next clock completes the request as FAILED
         harness.network()->deactivateRoamingForTest();
         HostTestHooks::p25ClockU2U(*harness.m_control, 1U);
         std::vector<std::vector<uint8_t>> tsbks = drainTSBKs(*harness.m_control);
@@ -4190,7 +4190,7 @@ TEST_CASE("P25 roaming deregistration, refresh and query at the serving host", "
     }
 
     SECTION("Timer_Refresh_Rejected_Releases_The_Roamer_Silently") {
-        // MME_MUST_CONFIRM_SU_PRESENCE: the home records the SU at another serving RFSS (spec 4.2)
+        // MME_MUST_CONFIRM_SU_PRESENCE: the home records the SU at another serving RFSS
         const uint32_t wuid = registerRoamer(harness, 1001U);
         HostTestHooks::p25ClockU2U(*harness.m_control, 14400000U);
         REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_REG) == 2U);
@@ -4215,7 +4215,7 @@ TEST_CASE("P25 roaming deregistration, refresh and query at the serving host", "
         CHECK_FALSE(HostTestHooks::p25IsUnitReg(*harness.m_control, wuid));
         CHECK(HostTestHooks::p25WuidLookup(*harness.m_control)->count() == 0U);
 
-        // the home accepted the SU, so it must learn the SU is not served here (spec 4.1 step 7)
+        // the home accepted the SU, so it must learn the SU is not served here
         REQUIRE(countRoamingWrites(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG) == 1U);
         CHECK(lastRoamingWrite(harness, network::NET_SUBFUNC::ROAM_SERVING_DEREG).suid == roamer);
     }

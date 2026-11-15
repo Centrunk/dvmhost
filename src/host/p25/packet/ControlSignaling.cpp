@@ -1949,7 +1949,7 @@ ControlSignaling::~ControlSignaling()
 
 void ControlSignaling::clock(uint32_t ms)
 {
-    // roaming Serving Registration timeouts, RetryTime, refresh and Forced-query timers (spec 4)
+    // roaming Serving Registration timeouts, RetryTime, refresh and Forced-query timers
     if (m_p25->m_allowRoaming) {
         m_p25->m_roamingClient->clock(ms);
     }
@@ -3821,7 +3821,7 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
         if (!roaming && m_p25->m_network != nullptr)
             m_p25->m_network->announceGroupAffiliation(srcId, dstId);
 
-        // a home-registered roamer's affiliation is announced by SUID with the local talkgroup (spec 5; groups bare until 3c)
+        // a home-registered roamer's affiliation is announced by SUID with the local talkgroup
         if (roaming && m_p25->m_network != nullptr) {
             lookups::P25WuidLookup::SUID suid;
             if (m_p25->m_wuidLookup->findByWuid(srcId, suid)) {
@@ -3957,7 +3957,7 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
         }
 
         // the local checks passed; the home system authorizes the SU (TIA-102.BACA-B 5.4, AABD 6.4.1.1), so the SU
-        //  always gets ACK_RSP_FNE within TRFSS_RSP to cover the wait (spec 4.1 step 2; TIA-102.AABD-B 4.1.3); with
+        //  always gets ACK_RSP_FNE within TRFSS_RSP to cover the wait (TIA-102.AABD-B 4.1.3); with
         //  ackRequests on it was already queued with the request
         if (!m_p25->m_ackTSBKRequests) {
             // address the requesting SUID; the Unit ID alone may name a different, registered Home SU
@@ -3973,7 +3973,7 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
         case lookups::P25RoamingClient::RequestResult::NOT_CAPABLE:
         default:
             // RetryTime after FAILED, an FNE link without roaming, no network, or an SUID the client cannot encode: the
-            //  FAILED policy applies at once (spec 4.1 step 8, 4.6); a roamer the home still holds keeps its WUID
+            //  FAILED policy applies at once; a roamer the home still holds keeps its WUID
             processRoamingOutcome(roamSuid, lookups::P25RoamingClient::Outcome::FAILED, lookups::P25RoamingClient::Profile(), true);
             break;
         }
@@ -4046,7 +4046,7 @@ bool ControlSignaling::processRoamingOutcome(const network::roaming::SUID& roamS
     const bool granted = (profile.access == network::roaming::RoamAccess::FULL) ||
         (profile.access == network::roaming::RoamAccess::EMERGENCY_ONLY);
     if (outcome == lookups::P25RoamingClient::Outcome::SUCCESS && granted) {
-        // a timer refresh changes nothing on air (spec 4.2)
+        // a timer refresh changes nothing on air
         if (!onAir) {
             return true;
         }
@@ -4073,7 +4073,7 @@ bool ControlSignaling::processRoamingOutcome(const network::roaming::SUID& roamS
             return true;
         }
 
-        // deviation D2: deny by default; REG_FAIL with a local WUID only when roamingAllowUnverified (AABD 6.4.1.1c)
+        // deny by default; REG_FAIL with a local WUID only when roamingAllowUnverified (AABD 6.4.1.1c)
         if (m_p25->m_roamingAllowUnverified) {
             const uint32_t wuid = admitRoamingSU(suid);
             if (wuid != 0U) {
@@ -4090,7 +4090,7 @@ bool ControlSignaling::processRoamingOutcome(const network::roaming::SUID& roamS
         return false;
     }
 
-    // a home failure code, or success with no (or an undefined) access: REG_DENY (spec 4.1 step 7, deviation D1)
+    // a home failure code, or success with no (or an undefined) access: REG_DENY
     releaseRoamingSU(suid);
     if (onAir) {
         writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::DENY, 0U,
@@ -4112,7 +4112,7 @@ uint32_t ControlSignaling::acceptRoamingSU(const lookups::P25WuidLookup::SUID& s
 
     writeRF_TSDU_U_Reg_Rsp_Roaming(suid, ResponseCode::ACCEPT, wuid, nullptr, MFG_STANDARD);
 
-    // roamer services stay denied until sub-projects 3c-3e; emergency-only access is recorded by the client
+    // roamer services stay denied; emergency-only access is recorded by the client
     if (profile.access == network::roaming::RoamAccess::EMERGENCY_ONLY) {
         LogWarning(LOG_RF, P25_TSDU_STR ", roaming SU limited to emergency access by its home, netId = $%05X, sysId = $%03X, unitId = %u, wuid = %u",
             suid.netId, suid.sysId, suid.unitId, wuid);
@@ -4123,7 +4123,7 @@ uint32_t ControlSignaling::acceptRoamingSU(const lookups::P25WuidLookup::SUID& s
         writeRF_TSDU_Ext_Func(ExtendedFunctions::INHIBIT, WUID_FNE, wuid, true);
     }
 
-    // a roamer appears on the network only by its SUID (spec 5)
+    // a roamer appears on the network only by its SUID
     if (m_p25->m_network != nullptr) {
         const network::roaming::SUID roamSuid = { suid.netId, suid.sysId, suid.unitId };
         m_p25->m_network->announceUnitRegistrationSUID(roamSuid);

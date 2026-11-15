@@ -603,18 +603,18 @@ namespace p25
         /**
          * @brief Fills the serving RFSS identity (this site) and reports whether the FNE link negotiated P25 roaming.
          * @param[out] serving Serving RFSS identity.
-         * @returns bool True if a home system can be reached; false for a standalone host or a non-roaming link (spec 4.6).
+         * @returns bool True if a home system can be reached; false for a standalone host or a non-roaming link.
          */
         bool roamingContext(network::roaming::RfssIdentity& serving) const;
         /**
-         * @brief Applies a Home Deregistration (spec 4.4).
+         * @brief Applies a Home Deregistration.
          * @param suid SUID named by the home.
          * @param qualifier Roamed or Non-Roamed.
          * @returns bool True if this host held the SU; false for Not Found.
          */
         bool processRoamingHomeDereg(const network::roaming::SUID& suid, uint8_t qualifier);
         /**
-         * @brief Sends U_REG_CMD to a roamer's WUID (Forced query, spec 4.5).
+         * @brief Sends U_REG_CMD to a roamer's WUID (Forced query).
          * @param suid Roaming SUID.
          * @returns bool True if the SU has a WUID here; otherwise, false.
          */
@@ -625,7 +625,7 @@ namespace p25
          */
         void processRoamingRelease(const network::roaming::SUID& suid);
         /**
-         * @brief Converts a network SUID to the on-air target address (spec 5).
+         * @brief Converts a network SUID to the on-air target address.
          * @param suid SUID from the network.
          * @param[out] rfTarget Unit ID (own system) or WUID (roamer registered here).
          * @returns bool True if the SU can be addressed here; false (logged) if the message must be dropped.
