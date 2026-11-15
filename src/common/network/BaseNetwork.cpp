@@ -381,7 +381,7 @@ bool BaseNetwork::announceGroupAffiliationRemoval(uint32_t srcId)
 
 /* Writes a unit registration to the network. */
 
-bool BaseNetwork::announceUnitRegistration(uint32_t srcId)
+bool BaseNetwork::announceUnitRegistration(uint32_t srcId, NET_SUBFUNC::ENUM protocol)
 {
     if (m_status != NET_STAT_RUNNING && m_status != NET_STAT_MST_RUNNING)
         return false;
@@ -389,13 +389,14 @@ bool BaseNetwork::announceUnitRegistration(uint32_t srcId)
     uint8_t buffer[DATA_PACKET_LENGTH];
 
     SET_UINT24(srcId, buffer, 0U);
+    buffer[3U] = protocol;                                                      // Protocol (optional for older FNEs)
 
-    return writeMaster({ NET_FUNC::ANNOUNCE, NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG }, buffer, MSG_ANNC_UNIT_REG, RTP_END_OF_CALL_SEQ, 0U, true);
+    return writeMaster({ NET_FUNC::ANNOUNCE, NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG }, buffer, MSG_ANNC_UNIT_REG_PROTO, RTP_END_OF_CALL_SEQ, 0U, true);
 }
 
 /* Writes a unit deregistration to the network. */
 
-bool BaseNetwork::announceUnitDeregistration(uint32_t srcId)
+bool BaseNetwork::announceUnitDeregistration(uint32_t srcId, NET_SUBFUNC::ENUM protocol)
 {
     if (m_status != NET_STAT_RUNNING && m_status != NET_STAT_MST_RUNNING)
         return false;
@@ -403,8 +404,9 @@ bool BaseNetwork::announceUnitDeregistration(uint32_t srcId)
     uint8_t buffer[DATA_PACKET_LENGTH];
 
     SET_UINT24(srcId, buffer, 0U);
+    buffer[3U] = protocol;                                                      // Protocol (optional for older FNEs)
 
-    return writeMaster({ NET_FUNC::ANNOUNCE, NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG }, buffer, MSG_ANNC_UNIT_REG, RTP_END_OF_CALL_SEQ, 0U, true);
+    return writeMaster({ NET_FUNC::ANNOUNCE, NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG }, buffer, MSG_ANNC_UNIT_REG_PROTO, RTP_END_OF_CALL_SEQ, 0U, true);
 }
 
 /* Writes a complete update of the peer affiliation list to the network. */

@@ -305,7 +305,7 @@ void Control::setOptions(yaml::Node& conf, const std::string cwCallsign, lookups
     // set the unit deregistration callback
     m_affiliations->setUnitDeregCallback([=](uint32_t srcId, bool automatic) {
         if (m_network != nullptr)
-            m_network->announceUnitDeregistration(srcId);
+            m_network->announceUnitDeregistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN);
     });
 
     lc::RCCH::setSiteData(m_siteData);

@@ -1228,7 +1228,7 @@ void Slot::init(Control* dmr, bool authoritative, uint32_t colorCode, SiteData s
     // set the unit deregistration callback
     s_affiliations->setUnitDeregCallback([=](uint32_t srcId, bool automatic) {
         if (s_network != nullptr)
-            s_network->announceUnitDeregistration(srcId);
+            s_network->announceUnitDeregistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR);
     });
 
     s_hangCount = callHang * 17U;

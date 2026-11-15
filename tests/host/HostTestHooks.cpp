@@ -266,6 +266,13 @@ void HostTestHooks::dmrRegisterUnit(dmr::Slot& slot, uint32_t unitId)
     slot.s_affiliations->unitReg(unitId);
 }
 
+/* Deregisters a DMR subscriber through the shared registration table. */
+
+void HostTestHooks::dmrUnitDereg(dmr::Slot& slot, uint32_t unitId)
+{
+    slot.s_affiliations->unitDereg(unitId);
+}
+
 /* Starts a synthetic DMR Tier III OACSU transaction. */
 
 bool HostTestHooks::dmrBeginU2UOACSU(dmr::Slot& slot, uint32_t callerId,
@@ -1110,6 +1117,13 @@ bool HostTestHooks::nxdnStartRFCall(nxdn::Control& control, uint32_t srcId, uint
     nxdn::NXDNUtils::scrambler(start + 2U);
 
     return control.processFrame(start, sizeof(start));
+}
+
+/* Sets whether NXDN legacy radios are auto-registered to groups on voice traffic. */
+
+void HostTestHooks::nxdnSetLegacyGroupReg(nxdn::Control& control, bool enabled)
+{
+    control.m_legacyGroupReg = enabled;
 }
 
 /* Injects synthetic NXDN network call start frame. */

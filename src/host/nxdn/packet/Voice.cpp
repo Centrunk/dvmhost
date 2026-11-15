@@ -184,7 +184,7 @@ bool Voice::process(FuncChannelType::E fct, ChOption::E option, uint8_t* data, u
                 }
 
                 if (m_nxdn->m_network != nullptr)
-                    m_nxdn->m_network->announceUnitRegistration(srcId);
+                    m_nxdn->m_network->announceUnitRegistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN);
 
                 // update dynamic affiliation table
                 m_nxdn->m_affiliations->groupAff(srcId, dstId);

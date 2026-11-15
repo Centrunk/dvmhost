@@ -604,6 +604,8 @@ public:
         m_lastTSDULCO(0U),
         m_tsduWriteCount(0U),
         m_announcedIds(),
+        m_unitRegProtocols(),
+        m_unitDeregProtocols(),
         m_bulkAnnounceCount(0U),
         m_voiceWriteCount(0U),
         m_pduWriteCount(0U),
@@ -839,12 +841,14 @@ public:
     /**
      * @brief Records a unit registration announcement before sending it.
      * @param srcId Source radio ID.
+     * @param protocol Registering protocol.
      * @returns bool True, if the announcement was sent; otherwise, false.
      */
-    bool announceUnitRegistration(uint32_t srcId) override
+    bool announceUnitRegistration(uint32_t srcId, network::NET_SUBFUNC::ENUM protocol) override
     {
         m_announcedIds.push_back(srcId);
-        return network::Network::announceUnitRegistration(srcId);
+        m_unitRegProtocols.push_back(protocol);
+        return network::Network::announceUnitRegistration(srcId, protocol);
     }
 
     /**
@@ -909,12 +913,14 @@ public:
     /**
      * @brief Records a unit de-registration announcement before sending it.
      * @param srcId Source radio ID.
+     * @param protocol Deregistering protocol.
      * @returns bool True, if the announcement was sent; otherwise, false.
      */
-    bool announceUnitDeregistration(uint32_t srcId) override
+    bool announceUnitDeregistration(uint32_t srcId, network::NET_SUBFUNC::ENUM protocol) override
     {
         m_announcedIds.push_back(srcId);
-        return network::Network::announceUnitDeregistration(srcId);
+        m_unitDeregProtocols.push_back(protocol);
+        return network::Network::announceUnitDeregistration(srcId, protocol);
     }
 
     /**
@@ -993,6 +999,12 @@ public:
     /** @brief Gets every radio ID carried by a unit registration or group affiliation announcement. */
     const std::vector<uint32_t>& announcedIds() const { return m_announcedIds; }
 
+    /** @brief Gets the protocol carried by each unit registration announcement. */
+    const std::vector<network::NET_SUBFUNC::ENUM>& unitRegProtocols() const { return m_unitRegProtocols; }
+
+    /** @brief Gets the protocol carried by each unit deregistration announcement. */
+    const std::vector<network::NET_SUBFUNC::ENUM>& unitDeregProtocols() const { return m_unitDeregProtocols; }
+
     /** @brief Gets the number of bulk (periodic) unit registration and affiliation announcements. */
     uint32_t bulkAnnounceCount() const { return m_bulkAnnounceCount; }
 
@@ -1070,6 +1082,8 @@ private:
     uint8_t m_lastTSDULCO;
     uint32_t m_tsduWriteCount;
     std::vector<uint32_t> m_announcedIds;
+    std::vector<network::NET_SUBFUNC::ENUM> m_unitRegProtocols;
+    std::vector<network::NET_SUBFUNC::ENUM> m_unitDeregProtocols;
     uint32_t m_bulkAnnounceCount;
     uint32_t m_voiceWriteCount;
     uint32_t m_pduWriteCount;
@@ -2954,6 +2968,24 @@ TEST_CASE("P25 periodic network announcements never carry roaming WUIDs", "[p25]
     for (uint32_t id : ids) {
         CHECK_FALSE(HostTestHooks::p25WuidLookup(*harness.m_control)->isPoolWuid(id));
     }
+
+    p25::lc::TSBK::setSiteData(previous);
+}
+
+TEST_CASE("P25 host tags its unit registration and deregistration announcements as P25", "[p25][host][announce]")
+{
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
+    P25HostHarness harness(true, true, 0U, 1U, false, false, true);
+    prepareRoaming(harness, true, {});
+
+    // a Home SU registering here (U_REG_REQ) is announced with the P25 protocol tag (FNE home-site release trigger)
+    REQUIRE(registerUnit(harness, 0xBB800U, 0x001U, 1001U) == 1001U);
+    REQUIRE(harness.network()->unitRegProtocols().size() == 1U);
+    CHECK(harness.network()->unitRegProtocols()[0U] == network::NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
+
+    HostTestHooks::p25UnitDereg(*harness.m_control, 1001U, false);
+    REQUIRE(harness.network()->unitDeregProtocols().size() == 1U);
+    CHECK(harness.network()->unitDeregProtocols()[0U] == network::NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
 
     p25::lc::TSBK::setSiteData(previous);
 }

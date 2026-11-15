@@ -3747,7 +3747,7 @@ uint8_t ControlSignaling::writeRF_TSDU_Grp_Aff_Rsp(uint32_t srcId, uint32_t dstI
             }
 
             if (m_p25->m_network != nullptr)
-                m_p25->m_network->announceUnitRegistration(srcId);
+                m_p25->m_network->announceUnitRegistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
         }
     }
 
@@ -3957,7 +3957,7 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
         }
 
         if (m_p25->m_network != nullptr)
-            m_p25->m_network->announceUnitRegistration(unitId);
+            m_p25->m_network->announceUnitRegistration(unitId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
     }
 
     writeRF_TSDU_SBF_Imm(iosp.get(), true);

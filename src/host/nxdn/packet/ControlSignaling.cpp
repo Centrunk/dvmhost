@@ -950,7 +950,7 @@ void ControlSignaling::writeRF_Message_U_Reg_Rsp(uint32_t srcId, uint32_t dstId,
         }
 
         if (m_nxdn->m_network != nullptr)
-            m_nxdn->m_network->announceUnitRegistration(srcId);
+            m_nxdn->m_network->announceUnitRegistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN);
     }
 
     rcch->setSrcId(srcId);

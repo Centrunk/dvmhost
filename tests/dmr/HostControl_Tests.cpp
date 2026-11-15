@@ -246,7 +246,9 @@ public:
      */
     DMRTestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U, bool disallowUnitToUnit = false) :
         network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, true, false, false, false, true, true, false, false, false, false, disallowUnitToUnit),
-        m_resetDMRCount(0U)
+        m_resetDMRCount(0U),
+        m_unitRegProtocols(),
+        m_unitDeregProtocols()
     {
         // keep protocol gates deterministic for this P25-focused harness
         m_dmrEnabled = true;
@@ -403,8 +405,40 @@ public:
         return m_rxDMRStreamId[slotNo - 1U];
     }
 
+    /**
+     * @brief Records the protocol of a unit registration announcement before sending it.
+     * @param srcId Source radio ID.
+     * @param protocol Registering protocol.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitRegistration(uint32_t srcId, network::NET_SUBFUNC::ENUM protocol) override
+    {
+        m_unitRegProtocols.push_back(protocol);
+        return network::Network::announceUnitRegistration(srcId, protocol);
+    }
+
+    /**
+     * @brief Records the protocol of a unit deregistration announcement before sending it.
+     * @param srcId Source radio ID.
+     * @param protocol Deregistering protocol.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitDeregistration(uint32_t srcId, network::NET_SUBFUNC::ENUM protocol) override
+    {
+        m_unitDeregProtocols.push_back(protocol);
+        return network::Network::announceUnitDeregistration(srcId, protocol);
+    }
+
+    /** @brief Gets the protocol carried by each unit registration announcement. */
+    const std::vector<network::NET_SUBFUNC::ENUM>& unitRegProtocols() const { return m_unitRegProtocols; }
+
+    /** @brief Gets the protocol carried by each unit deregistration announcement. */
+    const std::vector<network::NET_SUBFUNC::ENUM>& unitDeregProtocols() const { return m_unitDeregProtocols; }
+
 private:
     uint32_t m_resetDMRCount;
+    std::vector<network::NET_SUBFUNC::ENUM> m_unitRegProtocols;
+    std::vector<network::NET_SUBFUNC::ENUM> m_unitDeregProtocols;
 };
 
 // ---------------------------------------------------------------------------
@@ -848,6 +882,23 @@ TEST_CASE("DMR processFrame accepts a synthetic RF voice call on the targeted sl
     REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*HostTestHooks::dmrSlot1(*harness.m_control), 1001U, 2001U));
     REQUIRE(HostTestHooks::dmrRFState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastDstId(1U) == 2001U);
+}
+
+TEST_CASE("DMR host tags its unit registration and deregistration announcements as DMR", "[dmr][host][announce]")
+{
+    DMRHostHarness harness(true, true);
+    dmr::Slot* slot = HostTestHooks::dmrSlot1(*harness.m_control);
+
+    // a legacy radio auto-registered by voice traffic is announced with the DMR protocol tag, so the FNE never treats
+    //  it as a P25 home-site registration of the same unit number
+    slot->setLegacyGroupReg(true);
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1001U, 2001U));
+    REQUIRE(harness.network()->unitRegProtocols().size() == 1U);
+    CHECK(harness.network()->unitRegProtocols()[0U] == network::NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR);
+
+    HostTestHooks::dmrUnitDereg(*slot, 1001U);
+    REQUIRE(harness.network()->unitDeregProtocols().size() == 1U);
+    CHECK(harness.network()->unitDeregProtocols()[0U] == network::NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR);
 }
 
 TEST_CASE("DMR controller enforces TG admission without applying it to private calls", "[dmr][host][control][rf][talkgroup-admission]")

@@ -173,6 +173,13 @@ public:
      */
     static void dmrRegisterUnit(dmr::Slot& slot, uint32_t unitId);
     /**
+     * @brief Deregisters a DMR subscriber through the shared registration table (fires the production
+     *  deregistration callback installed by Slot::init()).
+     * @param slot DMR slot.
+     * @param unitId Subscriber ID to deregister.
+     */
+    static void dmrUnitDereg(dmr::Slot& slot, uint32_t unitId);
+    /**
      * @brief Starts a synthetic DMR Tier III OACSU transaction.
      * @param slot DMR control-channel slot.
      * @param callerId Calling subscriber ID.
@@ -932,6 +939,12 @@ public:
      * @return bool True if frame processing succeeds.
      */
     static bool nxdnStartRFCall(nxdn::Control& control, uint32_t srcId, uint32_t dstId, bool group = true);
+    /**
+     * @brief Sets whether NXDN legacy radios are auto-registered to groups on voice traffic.
+     * @param control NXDN control instance.
+     * @param enabled True to auto-register legacy radios.
+     */
+    static void nxdnSetLegacyGroupReg(nxdn::Control& control, bool enabled);
     /**
      * @brief Injects a synthetic NXDN network call start frame.
      * @param control NXDN control instance.

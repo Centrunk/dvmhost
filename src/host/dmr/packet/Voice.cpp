@@ -132,7 +132,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                         }
 
                         if (m_slot->s_network != nullptr)
-                            m_slot->s_network->announceUnitRegistration(srcId);
+                            m_slot->s_network->announceUnitRegistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR);
 
                         // update dynamic affiliation table
                         m_slot->s_affiliations->groupAff(srcId, dstId);

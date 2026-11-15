@@ -2927,7 +2927,7 @@ void Control::processUnitDereg(uint32_t srcId, bool automatic)
     }
 
     if (m_network != nullptr && !roaming)
-        m_network->announceUnitDeregistration(srcId);
+        m_network->announceUnitDeregistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_P25);
 
     // fire off a U_REG_CMD to get the SU to re-affiliate
     if (m_enableControl && automatic) {

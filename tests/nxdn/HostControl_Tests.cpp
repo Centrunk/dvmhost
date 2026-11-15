@@ -190,7 +190,9 @@ public:
      */
     NXDNTestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U, bool disallowUnitToUnit = false) :
         network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, false, false, true, false, true, true, false, false, false, false, disallowUnitToUnit),
-        m_resetNXDNCount(0U)
+        m_resetNXDNCount(0U),
+        m_unitRegProtocols(),
+        m_unitDeregProtocols()
     {
         // keep protocol gates deterministic for this NXDN-focused harness
         m_dmrEnabled = false;
@@ -420,8 +422,40 @@ public:
         return m_rxNXDNStreamId;
     }
 
+    /**
+     * @brief Records the protocol of a unit registration announcement before sending it.
+     * @param srcId Source radio ID.
+     * @param protocol Registering protocol.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitRegistration(uint32_t srcId, network::NET_SUBFUNC::ENUM protocol) override
+    {
+        m_unitRegProtocols.push_back(protocol);
+        return network::Network::announceUnitRegistration(srcId, protocol);
+    }
+
+    /**
+     * @brief Records the protocol of a unit deregistration announcement before sending it.
+     * @param srcId Source radio ID.
+     * @param protocol Deregistering protocol.
+     * @returns bool True, if the announcement was sent; otherwise, false.
+     */
+    bool announceUnitDeregistration(uint32_t srcId, network::NET_SUBFUNC::ENUM protocol) override
+    {
+        m_unitDeregProtocols.push_back(protocol);
+        return network::Network::announceUnitDeregistration(srcId, protocol);
+    }
+
+    /** @brief Gets the protocol carried by each unit registration announcement. */
+    const std::vector<network::NET_SUBFUNC::ENUM>& unitRegProtocols() const { return m_unitRegProtocols; }
+
+    /** @brief Gets the protocol carried by each unit deregistration announcement. */
+    const std::vector<network::NET_SUBFUNC::ENUM>& unitDeregProtocols() const { return m_unitDeregProtocols; }
+
 private:
     uint32_t m_resetNXDNCount;
+    std::vector<network::NET_SUBFUNC::ENUM> m_unitRegProtocols;
+    std::vector<network::NET_SUBFUNC::ENUM> m_unitDeregProtocols;
 };
 
 // ---------------------------------------------------------------------------
@@ -989,6 +1023,18 @@ TEST_CASE("NXDN processFrame accepts a synthetic RF voice call", "[nxdn][host][c
     REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1001U, 2001U));
     REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastDstId() == 2001U);
+}
+
+TEST_CASE("NXDN host tags its unit registration announcements as NXDN", "[nxdn][host][announce]")
+{
+    NXDNHostHarness harness(true, true);
+
+    // a legacy radio auto-registered by voice traffic is announced with the NXDN protocol tag, so the FNE never
+    //  treats it as a P25 home-site registration of the same unit number
+    HostTestHooks::nxdnSetLegacyGroupReg(*harness.m_control, true);
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1001U, 2001U));
+    REQUIRE(harness.network()->unitRegProtocols().size() == 1U);
+    CHECK(harness.network()->unitRegProtocols()[0U] == network::NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN);
 }
 
 TEST_CASE("NXDN controller enforces TG admission without applying it to individual calls", "[nxdn][host][control][rf][talkgroup-admission]")

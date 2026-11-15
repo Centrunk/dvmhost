@@ -88,6 +88,11 @@ namespace network
     const uint32_t  MSG_ANNC_GRP_AFFIL = 6U;
     const uint32_t  MSG_ANNC_GRP_UNAFFIL = 3U;
     const uint32_t  MSG_ANNC_UNIT_REG = 3U;
+    /**
+     * @brief Length of a protocol-tagged unit (de)registration announcement: the Source ID followed by one
+     *  NET_SUBFUNC::PROTOCOL_SUBFUNC_* byte at offset 3. A MSG_ANNC_UNIT_REG (3 byte) message carries no protocol.
+     */
+    const uint32_t  MSG_ANNC_UNIT_REG_PROTO = 4U;
     const uint32_t  DMR_PACKET_LENGTH = 55U;        // 20 byte header + DMR_FRAME_LENGTH_BYTES + 2 byte trailer
     const uint32_t  P25_LDU1_PACKET_LENGTH = 193U;  // 24 byte header + DFSI data + 1 byte frame type + 12 byte enc sync
     const uint32_t  P25_LDU2_PACKET_LENGTH = 181U;  // 24 byte header + DFSI data + 1 byte frame type
@@ -682,34 +687,42 @@ namespace network
          * @brief Writes a unit registration to the network.
          * \code{.unparsed}
          *  Below is the representation of the data layout for the unit registration
-         *  announcement message. The message is 3 bytes in length.
-         * 
-         *  Byte 0               1               2
-         *  Bit  7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0
-         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-         *      | Source ID                                     |
-         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+         *  announcement message. The message is 4 bytes in length (MSG_ANNC_UNIT_REG_PROTO).
+         *
+         *  Byte 0               1               2               3
+         *  Bit  7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0
+         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+         *      | Source ID                                     | Protocol      |
+         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+         *
+         *  Protocol is a NET_SUBFUNC::PROTOCOL_SUBFUNC_* value (0x00 DMR, 0x01 P25, 0x02 NXDN). Older hosts send
+         *  the 3 byte form (MSG_ANNC_UNIT_REG) without it; a receiver decides presence by length, never by value.
          * \endcode
          * @param srcId Source Radio ID.
-         * @returns bool True, if unit registration announcement was sent, otherwise false. 
+         * @param protocol Protocol the unit registration occurred on (NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, _P25 or _NXDN).
+         * @returns bool True, if unit registration announcement was sent, otherwise false.
          */
-        virtual bool announceUnitRegistration(uint32_t srcId);
+        virtual bool announceUnitRegistration(uint32_t srcId, NET_SUBFUNC::ENUM protocol);
         /**
          * @brief Writes a unit deregistration to the network.
          * \code{.unparsed}
          *  Below is the representation of the data layout for the unit deregistration
-         *  announcement message. The message is 3 bytes in length.
-         * 
-         *  Byte 0               1               2
-         *  Bit  7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0
-         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-         *      | Source ID                                     |
-         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+         *  announcement message. The message is 4 bytes in length (MSG_ANNC_UNIT_REG_PROTO).
+         *
+         *  Byte 0               1               2               3
+         *  Bit  7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0 7 6 5 4 3 2 1 0
+         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+         *      | Source ID                                     | Protocol      |
+         *      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+         *
+         *  Protocol is a NET_SUBFUNC::PROTOCOL_SUBFUNC_* value (0x00 DMR, 0x01 P25, 0x02 NXDN). Older hosts send
+         *  the 3 byte form (MSG_ANNC_UNIT_REG) without it; a receiver decides presence by length, never by value.
          * \endcode
          * @param srcId Source Radio ID.
-         * @returns bool True, if unit deregistration announcement was sent, otherwise false. 
+         * @param protocol Protocol the unit deregistration occurred on (NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, _P25 or _NXDN).
+         * @returns bool True, if unit deregistration announcement was sent, otherwise false.
          */
-        virtual bool announceUnitDeregistration(uint32_t srcId);
+        virtual bool announceUnitDeregistration(uint32_t srcId, NET_SUBFUNC::ENUM protocol);
 
         /**
          * @brief Writes a complete update of the peer affiliation list to the network.

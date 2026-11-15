@@ -819,13 +819,29 @@ TEST_CASE("BaseNetwork emits announcement frames with the expected payloads whil
     REQUIRE(grpSrc == 0x123456U);
     REQUIRE(grpDst == 0x654321U);
 
-    REQUIRE(network.announceUnitRegistration(0x112233U));
-    REQUIRE(waitForFrameMessage(metadataReceiverQueue, payload, rtpHeader, fneHeader));
-    REQUIRE(fneHeader.getFunction() == NET_FUNC::ANNOUNCE);
-    REQUIRE(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG);
-    REQUIRE(payload.size() == MSG_ANNC_UNIT_REG);
-    const uint32_t unitRegId = GET_UINT24(reinterpret_cast<const uint8_t*>(payload.data()), 0U);
-    REQUIRE(unitRegId == 0x112233U);
+    // unit (de)registrations carry the registering protocol at offset 3 (Source ID, then protocol)
+    const std::vector<std::pair<NET_SUBFUNC::ENUM, uint8_t>> protocols = {
+        { NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, 0x00U },
+        { NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, 0x01U },
+        { NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN, 0x02U }
+    };
+    for (const auto& protocol : protocols) {
+        const std::string expected = { '\x11', '\x22', '\x33', static_cast<char>(protocol.second) };
+
+        REQUIRE(network.announceUnitRegistration(0x112233U, protocol.first));
+        REQUIRE(waitForFrameMessage(metadataReceiverQueue, payload, rtpHeader, fneHeader));
+        REQUIRE(fneHeader.getFunction() == NET_FUNC::ANNOUNCE);
+        REQUIRE(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG);
+        REQUIRE(payload.size() == MSG_ANNC_UNIT_REG_PROTO);
+        CHECK(payload == expected);
+
+        REQUIRE(network.announceUnitDeregistration(0x112233U, protocol.first));
+        REQUIRE(waitForFrameMessage(metadataReceiverQueue, payload, rtpHeader, fneHeader));
+        REQUIRE(fneHeader.getFunction() == NET_FUNC::ANNOUNCE);
+        REQUIRE(fneHeader.getSubFunction() == NET_SUBFUNC::ANNC_SUBFUNC_UNIT_DEREG);
+        REQUIRE(payload.size() == MSG_ANNC_UNIT_REG_PROTO);
+        CHECK(payload == expected);
+    }
 
     std::unordered_map<uint32_t, uint32_t> affs = { {0x111111U, 0x222222U}, {0x333333U, 0x444444U} };
     REQUIRE(network.announceAffiliationUpdate(affs));

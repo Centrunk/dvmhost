@@ -1592,7 +1592,7 @@ void ControlSignaling::writeRF_CSBK_U_Reg_Rsp(uint32_t srcId, uint8_t serviceOpt
             }
 
             if (m_slot->s_network != nullptr)
-                m_slot->s_network->announceUnitRegistration(srcId);
+                m_slot->s_network->announceUnitRegistration(srcId, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR);
         }
     }
 
