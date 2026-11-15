@@ -552,6 +552,39 @@ TEST_CASE("FNE REST reload endpoints refresh their configured lookup tables", "[
     CHECK(tgs.find(3002U, 1U).isInvalid());
 }
 
+TEST_CASE("FNE REST omits the P25 roaming identity from the registration and affiliation reports when roaming is off", "[fne][restapi][roaming]")
+{
+    HostFNE host("fne-test.yml");
+    lookups::RadioIdLookup radios("", 0U, true, false);
+    lookups::TalkgroupRulesLookup talkgroups("", 0U, true, false);
+    network::TrafficNetwork traffic(&host, "127.0.0.1", 62051U, 999999U, "test-password", "test-fne",
+        false, false, false, false, true, true, true, true, true, 0U, false, true, true, true, 5U, 10U, 2U);
+    traffic.setLookups(&radios, nullptr, &talkgroups, nullptr, nullptr, nullptr);
+
+    FNETestHooks::addPeer(traffic, 3001U, network::NET_STAT_RUNNING, true);
+    FNETestHooks::addGroupAffiliation(traffic, 3001U, 1001U, 4001U);
+
+    const uint16_t port = reserveLoopbackPort();
+    ScopedRESTAPI server(port, &radios);
+    server.api.setNetwork(&traffic);
+
+    json::object regs = sendRequest(port, HTTP_GET, FNE_GET_UNIT_REG_LIST);
+    CHECK(regs["units"].is<json::array>());
+    CHECK_FALSE(regs["netId"].is<uint32_t>());
+    CHECK_FALSE(regs["sysId"].is<uint32_t>());
+    CHECK_FALSE(regs["suidUnits"].is<json::array>());
+
+    json::object affs = sendRequest(port, HTTP_GET, FNE_GET_AFF_LIST);
+    json::array peers = affs["affiliations"].get<json::array>();
+    REQUIRE(peers.size() == 1U);
+    json::array peerAffs = peers[0U].get<json::object>()["affiliations"].get<json::array>();
+    REQUIRE(peerAffs.size() == 1U);
+    json::object aff = peerAffs[0U].get<json::object>();
+    CHECK(aff["srcId"].get<uint32_t>() == 1001U);
+    CHECK_FALSE(aff["netId"].is<uint32_t>());
+    CHECK_FALSE(aff["sysId"].is<uint32_t>());
+}
+
 TEST_CASE("FNE REST reports P25 roaming locations and served roamers and starts Forced queries", "[fne][restapi][roaming]")
 {
     using namespace network::roaming;

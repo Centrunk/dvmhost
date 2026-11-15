@@ -2635,30 +2635,32 @@ void RESTAPI::restAPI_GetUnitRegList(const HTTPPayload& request, HTTPPayload& re
         uint32_t totalUnits = unitRegTable.size();
         response["totalUnits"].set<uint32_t>(totalUnits);
 
-        // units above are bare IDs of this system; foreign (roaming) units are reported by SUID (spec 2.8)
-        uint32_t ownNetId = m_network->p25RoamingConfig().netId();
-        uint32_t ownSysId = m_network->p25RoamingConfig().sysId();
-        response["netId"].set<uint32_t>(ownNetId);
-        response["sysId"].set<uint32_t>(ownSysId);
+        // units above are bare IDs of this system; with P25 roaming enabled foreign units are reported by SUID
+        if (m_network->p25RoamingConfig().enabled()) {
+            uint32_t ownNetId = m_network->p25RoamingConfig().netId();
+            uint32_t ownSysId = m_network->p25RoamingConfig().sysId();
+            response["netId"].set<uint32_t>(ownNetId);
+            response["sysId"].set<uint32_t>(ownSysId);
 
-        json::array suidUnits = json::array();
-        for (const SuidRegistrationTable::Entry& entry : m_network->m_suidRegistrations.snapshot()) {
-            if (!entry.registered) {
-                continue;
+            json::array suidUnits = json::array();
+            for (const SuidRegistrationTable::Entry& entry : m_network->m_suidRegistrations.snapshot()) {
+                if (!entry.registered) {
+                    continue;
+                }
+
+                uint32_t unitId = entry.suid.unitId;
+                uint32_t netId = entry.suid.netId;
+                uint32_t sysId = entry.suid.sysId;
+                uint32_t peerId = entry.peerId;
+                json::object unitObj = json::object();
+                unitObj["unitId"].set<uint32_t>(unitId);
+                unitObj["netId"].set<uint32_t>(netId);
+                unitObj["sysId"].set<uint32_t>(sysId);
+                unitObj["peerId"].set<uint32_t>(peerId);
+                suidUnits.push_back(json::value(unitObj));
             }
-
-            uint32_t unitId = entry.suid.unitId;
-            uint32_t netId = entry.suid.netId;
-            uint32_t sysId = entry.suid.sysId;
-            uint32_t peerId = entry.peerId;
-            json::object unitObj = json::object();
-            unitObj["unitId"].set<uint32_t>(unitId);
-            unitObj["netId"].set<uint32_t>(netId);
-            unitObj["sysId"].set<uint32_t>(sysId);
-            unitObj["peerId"].set<uint32_t>(peerId);
-            suidUnits.push_back(json::value(unitObj));
+            response["suidUnits"].set<json::array>(suidUnits);
         }
-        response["suidUnits"].set<json::array>(suidUnits);
     }
 
     response["units"].set<json::array>(units);
@@ -2680,7 +2682,8 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
     if (m_network != nullptr) {
         uint32_t totalAffiliations = 0U;
 
-        // local affiliations are this system's units; foreign ones carry their home WACN/System ID (spec 2.8)
+        // with P25 roaming enabled, affiliations carry their home WACN/System ID
+        const bool roaming = m_network->p25RoamingConfig().enabled();
         uint32_t ownNetId = m_network->p25RoamingConfig().netId();
         uint32_t ownSysId = m_network->p25RoamingConfig().sysId();
         std::unordered_map<uint32_t, std::vector<SuidRegistrationTable::Entry>> foreignByPeer;
@@ -2718,8 +2721,10 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
                             json::object affObj = json::object();
                             affObj["srcId"].set<uint32_t>(srcId);
                             affObj["dstId"].set<uint32_t>(dstId);
-                            affObj["netId"].set<uint32_t>(ownNetId);
-                            affObj["sysId"].set<uint32_t>(ownSysId);
+                            if (roaming) {
+                                affObj["netId"].set<uint32_t>(ownNetId);
+                                affObj["sysId"].set<uint32_t>(ownSysId);
+                            }
                             peerAffs.push_back(json::value(affObj));
                         }
                     }

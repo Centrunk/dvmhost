@@ -1539,9 +1539,9 @@ X-DVM-Auth-Token: {token}
 **Response Fields:**
 - `totalUnits`: Count of registered units returned
 - `units[]`: Flat array of registered source IDs
-- `netId`: P25 WACN of this system (0 when roaming is not configured)
-- `sysId`: P25 System ID of this system (0 when roaming is not configured)
-- `suidUnits[]`: Foreign (roaming) units registered behind a peer, each with `unitId`, `netId`, `sysId` (the unit's home WACN and System ID) and `peerId`
+- `netId`: P25 WACN of this system (only present when P25 roaming is enabled)
+- `sysId`: P25 System ID of this system (only present when P25 roaming is enabled)
+- `suidUnits[]`: (only present when P25 roaming is enabled) Foreign (roaming) units registered behind a peer, each with `unitId`, `netId`, `sysId` (the unit's home WACN and System ID) and `peerId`
 
 **Notes:**
 - Data is sourced from the global affiliation/unit registration table maintained by `TrafficNetwork`
@@ -1605,7 +1605,7 @@ X-DVM-Auth-Token: {token}
 - Each peer may have multiple radio affiliations
 - Empty peers (no affiliations) are not included in the response
 
-**Roaming Fields:** Each entry of `affiliations[]` also carries `netId` and `sysId`. Local units report this system's values; foreign (roaming) units appear in the list of the peer they are behind and report their home values.
+**Roaming Fields:** When P25 roaming is enabled, each entry of `affiliations[]` also carries `netId` and `sysId`. Local units report this system's values; foreign (roaming) units appear in the list of the peer they are behind and report their home values.
 
 ---
 
