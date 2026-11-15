@@ -4420,8 +4420,13 @@ TEST_CASE("P25 host detaches the network before the network is destroyed", "[p25
 {
     // Host::setState(HOST_STATE_QUIT) deletes the network while the P25 controller lives until ~Host;
     //  detachNetwork() must leave the controller with no reference into the network it is about to lose
+    const p25::SiteData previous = p25::lc::TSBK::getSiteData();
     P25HostHarness harness(true, true);
     REQUIRE(harness.network() != nullptr);
+
+    // the roaming callback is installed only while roaming is in effect
+    CHECK_FALSE(harness.network()->hasP25RoamingCallback());
+    prepareRoaming(harness, true, {});
     REQUIRE(harness.network()->hasP25RoamingCallback());
 
     harness.m_control->detachNetwork();
@@ -4431,4 +4436,5 @@ TEST_CASE("P25 host detaches the network before the network is destroyed", "[p25
     // destroy the network first, as Host does; the controller destructor must not touch it
     delete harness.m_network;
     harness.m_network = nullptr;
+    p25::lc::TSBK::setSiteData(previous);
 }

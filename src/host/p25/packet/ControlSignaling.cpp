@@ -1950,7 +1950,9 @@ ControlSignaling::~ControlSignaling()
 void ControlSignaling::clock(uint32_t ms)
 {
     // roaming Serving Registration timeouts, RetryTime, refresh and Forced-query timers (spec 4)
-    m_p25->m_roamingClient->clock(ms);
+    if (m_p25->m_allowRoaming) {
+        m_p25->m_roamingClient->clock(ms);
+    }
 
     // update and expire pending unit-to-unit availability transactions based on the response timer
     for (auto it = m_u2uAvailabilityTransactions.begin(); it != m_u2uAvailabilityTransactions.end(); ) {

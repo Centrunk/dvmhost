@@ -195,11 +195,6 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     });
     m_roamingClient->setRegCmdCallback([this](const network::roaming::SUID& suid) { return processRoamingRegCmd(suid); });
     m_roamingClient->setForcedExpiryCallback([this](const network::roaming::SUID& suid) { processRoamingRelease(suid); });
-    if (m_network != nullptr) {
-        m_network->setP25RoamingCallback([this](uint8_t subFunc, const uint8_t* data, uint32_t length) {
-            m_roamingClient->processMessage(subFunc, data, length);
-        });
-    }
 
     std::random_device rd;
     std::mt19937 mt(rd());
@@ -2673,6 +2668,7 @@ bool Control::configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, 
     m_wuidLookup->clear();
     if (m_network != nullptr) {
         m_network->setP25RoamingIdentity(0U, 0U, 0U);
+        m_network->setP25RoamingCallback(nullptr);
     }
 
     if (!allow) {
@@ -2730,6 +2726,9 @@ bool Control::configureRoaming(bool allow, const std::vector<uint32_t>& sysIds, 
     //  voice channel hosts sharing the FNE are never subject to the identity check
     if (m_network != nullptr) {
         m_network->setP25RoamingIdentity(m_siteData.netId(), m_siteData.sysId(), m_siteData.rfssId());
+        m_network->setP25RoamingCallback([this](uint8_t subFunc, const uint8_t* data, uint32_t length) {
+            m_roamingClient->processMessage(subFunc, data, length);
+        });
     }
 
     return true;
