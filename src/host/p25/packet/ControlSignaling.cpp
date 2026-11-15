@@ -233,8 +233,8 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
 
         m_lastMFID = tsbk->getMFId();
 
-        // roaming SUs are served locally until roaming identity translation exists; U_REG_REQ and
-        // U_DE_REG_REQ carry the SUID rather than the WUID (TIA-102.AABC-D 2.3.28) and are classified below
+        // roaming SUs are served locally; U_REG_REQ and U_DE_REG_REQ carry the SUID rather than the WUID
+        //  (TIA-102.AABC-D 2.3.28) and are classified in their own cases below
         // services addressed to a roaming SU would carry its pool WUID to the network as the target
         const bool roamingSrc = tsbk->getLCO() != TSBKO::IOSP_U_REG && tsbk->getLCO() != TSBKO::ISP_U_DEREG_REQ &&
             m_p25->m_wuidLookup->isPoolWuid(srcId);
