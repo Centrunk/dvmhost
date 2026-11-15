@@ -438,14 +438,6 @@ public:
      */
     static bool p25ResolveNetworkTarget(p25::Control& control, const network::roaming::SUID& suid, uint32_t& rfTarget);
     /**
-     * @brief Resolves the on-air source for a network SUID.
-     * @param control P25 controller.
-     * @param suid SUID.
-     * @param[out] srcAddr On-air Source Address.
-     * @param[out] extended True when the SUID must go in the extended source fields.
-     */
-    static void p25ResolveOnAirSource(p25::Control& control, const network::roaming::SUID& suid, uint32_t& srcAddr, bool& extended);
-    /**
      * @brief Sets whether TSBK requests are acknowledged with ACK_RSP_FNE (ackRequests).
      * @param control P25 controller.
      * @param ack Flag indicating requests are acknowledged.

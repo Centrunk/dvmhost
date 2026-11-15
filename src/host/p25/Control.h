@@ -631,13 +631,6 @@ namespace p25
          * @returns bool True if the SU can be addressed here; false (logged) if the message must be dropped.
          */
         bool resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t& rfTarget) const;
-        /**
-         * @brief Chooses the on-air source for a network SUID (spec 5); a foreign Unit ID is never placed raw on air.
-         * @param suid SUID from the network.
-         * @param[out] srcAddr Unit ID, roamer WUID, or No-unit $000000.
-         * @param[out] extended True when the SUID must go in the extended Source WACN/System/ID fields.
-         */
-        void resolveOnAirSource(const network::roaming::SUID& suid, uint32_t& srcAddr, bool& extended) const;
 
         /**
          * @brief Helper to process a unit de-registration from the affiliation table.

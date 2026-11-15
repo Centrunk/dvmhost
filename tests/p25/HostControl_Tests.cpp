@@ -4372,18 +4372,6 @@ TEST_CASE("P25 roaming deregistration, refresh and query at the serving host", "
         CHECK(target == wuid);
         CHECK_FALSE(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, SUID{ 0xBB800U, 0x002U, 1002U }, target));
         CHECK_FALSE(HostTestHooks::p25ResolveNetworkTarget(*harness.m_control, SUID{ 0xBB800U, 0x001U, 9000005U }, target));
-
-        uint32_t source = 1U;
-        bool extended = true;
-        HostTestHooks::p25ResolveOnAirSource(*harness.m_control, SUID{ 0xBB800U, 0x001U, 1001U }, source, extended);
-        CHECK(source == 1001U);
-        CHECK_FALSE(extended);
-        HostTestHooks::p25ResolveOnAirSource(*harness.m_control, roamer, source, extended);
-        CHECK(source == wuid);
-        CHECK_FALSE(extended);
-        HostTestHooks::p25ResolveOnAirSource(*harness.m_control, SUID{ 0xDEE00U, 0x911U, 0x0F4240U }, source, extended);
-        CHECK(source == 0U);                                                        // No-unit $000000
-        CHECK(extended);
     }
 
     p25::lc::TSBK::setSiteData(previous);

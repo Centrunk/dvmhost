@@ -2882,34 +2882,6 @@ bool Control::resolveNetworkTarget(const network::roaming::SUID& suid, uint32_t&
     return true;
 }
 
-/* Chooses the on-air source for a network SUID. */
-
-void Control::resolveOnAirSource(const network::roaming::SUID& suid, uint32_t& srcAddr, bool& extended) const
-{
-    extended = false;
-
-    const bool ownSystem = (suid.netId == 0U && suid.sysId == 0U) ||
-        (suid.netId == m_siteData.netId() && suid.sysId == m_siteData.sysId());
-    if (suid.valid()) {
-        if (ownSystem && !m_wuidLookup->isPoolWuid(suid.unitId)) {
-            srcAddr = suid.unitId;
-            return;
-        }
-
-        const lookups::P25WuidLookup::SUID wsuid = { suid.netId, suid.sysId, suid.unitId };
-        uint32_t wuid = 0U;
-        if (!ownSystem && m_wuidLookup->findBySuid(wsuid, wuid)) {
-            srcAddr = wuid;
-            return;
-        }
-    }
-
-    // Source Address No-unit with the SUID in the extended Source WACN/System/ID fields
-    //  (TIA-102.AABC-D 2.3.27, 4.2.5.2; TIA-102.BAAC-C 2.4)
-    srcAddr = 0U;
-    extended = true;
-}
-
 /* Helper to process a unit de-registration from the affiliation table. */
 
 void Control::processUnitDereg(uint32_t srcId, bool automatic)
