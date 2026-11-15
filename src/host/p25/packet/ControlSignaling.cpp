@@ -3933,10 +3933,7 @@ void ControlSignaling::writeRF_TSDU_U_Reg_Rsp(const lookups::P25WuidLookup::SUID
     if (suid.sysId != m_p25->m_siteData.sysId()) {
         const char* reason = nullptr;
 
-        if (!m_p25->m_allowRoaming) {
-            reason = "roaming disabled";
-        }
-        else if (suid.sysId == 0U) {
+        if (suid.sysId == 0U) {
             // System ID $000 is not a valid home system
             reason = "invalid home System ID";
         }
