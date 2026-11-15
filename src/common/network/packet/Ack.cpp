@@ -54,7 +54,7 @@ bool Network::PacketHandler::ack(Network* network, uint32_t peerId, uint32_t str
 
             network->pktSeq(true);
 
-            // P25 roaming is active only when this peer offered it and the master answered capable (spec 3.1);
+            // P25 roaming is active only when this peer offered it and the master answered capable;
             //  older masters send a 1-byte payload without the capability bit
             network->m_p25RoamingActive = false;
             network->m_masterP25NetId = 0U;
@@ -63,13 +63,17 @@ bool Network::PacketHandler::ack(Network* network, uint32_t peerId, uint32_t str
                 bool capable = false;
                 uint32_t masterNetId = 0U;
                 uint32_t masterSysId = 0U;
-                if (roaming::RoamingCodec::decodeConfigAck(buffer + 6U, static_cast<uint32_t>(length - 6), capable, masterNetId, masterSysId) && capable) {
+                const bool decoded = roaming::RoamingCodec::decodeConfigAck(buffer + 6U, static_cast<uint32_t>(length - 6), capable, masterNetId, masterSysId);
+                if (decoded && capable) {
                     // identity first, so a reader that sees the flag raised also sees the identity
                     network->m_masterP25NetId = masterNetId;
                     network->m_masterP25SysId = masterSysId;
                     network->m_p25RoamingActive = true;
                     LogInfoEx(LOG_NET, "PEER %u RPTC ACK, P25 roaming negotiated, master netId = $%05X, sysId = $%03X", network->m_peerId,
                         masterNetId, masterSysId);
+                }
+                else if (!decoded) {
+                    LogWarning(LOG_NET, "PEER %u RPTC ACK, malformed P25 roaming payload, roaming not negotiated", network->m_peerId);
                 }
                 else {
                     LogInfoEx(LOG_NET, "PEER %u RPTC ACK, master is not P25 roaming capable", network->m_peerId);
