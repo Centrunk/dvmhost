@@ -2687,9 +2687,11 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
         uint32_t ownNetId = m_network->p25RoamingConfig().netId();
         uint32_t ownSysId = m_network->p25RoamingConfig().sysId();
         std::unordered_map<uint32_t, std::vector<SuidRegistrationTable::Entry>> foreignByPeer;
-        for (const SuidRegistrationTable::Entry& entry : m_network->m_suidRegistrations.snapshot()) {
-            if (entry.talkgroup != 0U) {
-                foreignByPeer[entry.peerId].push_back(entry);
+        if (roaming) {
+            for (const SuidRegistrationTable::Entry& entry : m_network->m_suidRegistrations.snapshot()) {
+                if (entry.talkgroup != 0U) {
+                    foreignByPeer[entry.peerId].push_back(entry);
+                }
             }
         }
 
