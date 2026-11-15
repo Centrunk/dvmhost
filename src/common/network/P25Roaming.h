@@ -307,7 +307,7 @@ namespace network
          */
         struct DVM_COMMON_API SuidAnnouncement {
             SUID suid;                                  //!< Foreign SU.
-            uint32_t talkgroup = 0U;                    //!< Local talkgroup ID (bare until sub-project 3c).
+            uint32_t talkgroup = 0U;                    //!< Local talkgroup ID.
         };
 
         // ---------------------------------------------------------------------------
@@ -323,7 +323,6 @@ namespace network
             uint32_t sysId = 0U;                        //!< Peer System ID.
             uint8_t rfssId = 0U;                        //!< Peer RFSS ID (0 for a downstream FNE).
         };
-
 
         // ---------------------------------------------------------------------------
         //  Class Declaration

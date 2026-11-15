@@ -32,7 +32,6 @@ namespace p25
             /**
              * @brief Implements U REG RSP - Unit Registration Response (Extended Format, TIA-102.AABC-D 6.2.21.2).
              *  Used when the WACN ID of the source unit does not match the WACN ID of the site.
-             *  In this release it is only used to deny such SUs.
              * @ingroup p25_ambt
              */
             class DVM_COMMON_API MBT_OSP_U_REG_RSP : public AMBT {

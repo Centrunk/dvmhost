@@ -70,7 +70,8 @@ void IOSP_ACK_RSP::encode(uint8_t* data, bool rawTSBK, bool noTrellis)
     tsbkValue |= (m_aivFlag) ? 0x80U : 0x00U;                                       // Additional Info. Valid Flag
     tsbkValue |= (m_extendedAddrFlag) ? 0x40U : 0x00U;                              // Extended Addressing Flag
     if (m_aivFlag && m_extendedAddrFlag) {
-        // the WACN ID and System ID qualify the Target ID as the target SU's SUID (TIA-102.AABC-D Figure 6.2.1-2); a Home SU uses the site's
+        // the WACN ID and System ID qualify the Target ID as the target SU's SUID (TIA-102.AABC-D Figure 6.2.1-2);
+        //  a Home SU uses the site's
         const uint32_t netId = (m_suidNetId != SUID_SITE_DEFAULT) ? m_suidNetId : s_siteData.netId();
         const uint32_t sysId = (m_suidSysId != SUID_SITE_DEFAULT) ? m_suidSysId : s_siteData.sysId();
         tsbkValue = (tsbkValue << 20) + (netId & 0xFFFFFU);                         // Network ID

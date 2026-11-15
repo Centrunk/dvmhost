@@ -417,7 +417,7 @@ namespace network
         /**
          * @brief Announces a foreign SU's group affiliation by SUID (ANNC_SUBFUNC_GRP_AFFIL_SUID).
          * @param suid Foreign SUID.
-         * @param talkgroup Local talkgroup ID (bare until sub-project 3c).
+         * @param talkgroup Local talkgroup ID.
          * @returns bool True if sent; false if roaming is not negotiated or a field is out of range.
          */
         virtual bool announceGroupAffiliationSUID(const roaming::SUID& suid, uint32_t talkgroup);
