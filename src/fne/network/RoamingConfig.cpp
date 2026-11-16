@@ -104,7 +104,7 @@ bool RoamingConfig::set(uint32_t netId, uint32_t sysId, uint32_t expires)
 RoamingLogin::E RoamingConfig::evaluateLogin(const json::object& peerConfig, bool neighbor, RoamingPeerConfig& peer) const
 {
     peer = RoamingPeerConfig();
-    const bool offered = RoamingCodec::parseConfig(peerConfig, peer);
+    const bool offered = Roaming::parseConfig(peerConfig, peer);
 
     // an FNE without an identity never negotiates roaming
     if (!m_enabled) {
@@ -135,7 +135,7 @@ RoamingLogin::E RoamingConfig::evaluateLogin(const json::object& peerConfig, boo
 
 uint32_t RoamingConfig::buildConfigAck(uint8_t* payload, uint32_t payloadLen) const
 {
-    return RoamingCodec::encodeConfigAck(payload, payloadLen, m_enabled, m_netId, m_sysId);
+    return Roaming::encodeConfigAck(payload, payloadLen, m_enabled, m_netId, m_sysId);
 }
 
 /* Parses a hexadecimal identity string. */

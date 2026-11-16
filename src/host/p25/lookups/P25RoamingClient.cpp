@@ -298,11 +298,11 @@ void P25RoamingClient::processMessage(uint8_t subFunc, const uint8_t* data, uint
     }
 
     // an unknown request is answered GEN_PROC_UNSUPPORTED; an unknown response is dropped (BACA 5.5 Gen Req 4-5)
-    if (RoamingCodec::messageLength(subFunc) == 0U) {
+    if (Roaming::messageLength(subFunc) == 0U) {
         uint8_t version = 0U;
         uint8_t hopCount = 0U;
         uint32_t txnId = 0U;
-        if (RoamingCodec::isRequest(subFunc) && RoamingCodec::decodeHeader(data, length, version, hopCount, txnId) == RoamDecode::OK &&
+        if (Roaming::isRequest(subFunc) && Roaming::decodeHeader(data, length, version, hopCount, txnId) == RoamDecode::OK &&
             version == ROAM_VERSION) {
             RoamingMessage rsp;
             rsp.subFunc = NET_SUBFUNC::ROAM_GEN_RSP;
@@ -320,7 +320,7 @@ void P25RoamingClient::processMessage(uint8_t subFunc, const uint8_t* data, uint
     }
 
     RoamingMessage msg;
-    const RoamDecode::E status = RoamingCodec::decode(subFunc, data, length, msg);
+    const RoamDecode::E status = Roaming::decode(subFunc, data, length, msg);
     if (status != RoamDecode::OK) {
         LogWarning(LOG_P25, "P25 ROAMING, malformed message, subFunc = $%02X, length = %u, status = %u, dropped", subFunc, length, (uint32_t)status);
         return;
@@ -482,7 +482,7 @@ uint32_t P25RoamingClient::refreshPeriodMs(uint32_t expires)
 void P25RoamingClient::queueSend(ActionList& actions, const RoamingMessage& msg) const
 {
     uint8_t buffer[MSG_ROAM_MAX_LEN];
-    const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+    const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
     if (length == 0U) {
         LogError(LOG_P25, "P25 ROAMING, failed to encode subFunc = $%02X, txnId = %08X", msg.subFunc, msg.txnId);
         return;

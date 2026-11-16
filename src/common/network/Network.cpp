@@ -261,7 +261,7 @@ void Network::appendP25RoamingConfig(json::object& config) const
         return;
     }
 
-    json::object roam = roaming::RoamingCodec::buildConfig(m_p25RoamingNetId, m_p25RoamingSysId, m_p25RoamingRfssId);
+    json::object roam = roaming::Roaming::buildConfig(m_p25RoamingNetId, m_p25RoamingSysId, m_p25RoamingRfssId);
     config["p25Roaming"].set<json::object>(roam);
 }
 
@@ -317,7 +317,7 @@ bool Network::announceUnitRegUpdateSUID(const std::vector<roaming::SUID>& regs)
         entries.push_back(entry);
     }
 
-    std::vector<uint8_t> payload = roaming::RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, entries);
+    std::vector<uint8_t> payload = roaming::Roaming::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, entries);
     if (payload.empty()) {
         return false;
     }
@@ -334,7 +334,7 @@ bool Network::announceAffiliationUpdateSUID(const std::vector<roaming::SuidAnnou
         return false;
     }
 
-    std::vector<uint8_t> payload = roaming::RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affs);
+    std::vector<uint8_t> payload = roaming::Roaming::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affs);
     if (payload.empty()) {
         return false;
     }
@@ -356,7 +356,7 @@ bool Network::writeSuidAnnouncement(NET_SUBFUNC::ENUM subFunc, const roaming::SU
     entry.talkgroup = talkgroup;
 
     uint8_t buffer[roaming::MSG_ANNC_GRP_AFFIL_SUID_LEN];
-    const uint32_t length = roaming::RoamingCodec::encodeSuidAnnouncement(subFunc, entry, buffer, sizeof(buffer));
+    const uint32_t length = roaming::Roaming::encodeSuidAnnouncement(subFunc, entry, buffer, sizeof(buffer));
     if (length == 0U) {
         return false;
     }

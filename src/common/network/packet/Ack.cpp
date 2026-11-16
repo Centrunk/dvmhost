@@ -63,7 +63,7 @@ bool Network::PacketHandler::ack(Network* network, uint32_t peerId, uint32_t str
                 bool capable = false;
                 uint32_t masterNetId = 0U;
                 uint32_t masterSysId = 0U;
-                const bool decoded = roaming::RoamingCodec::decodeConfigAck(buffer + 6U, static_cast<uint32_t>(length - 6), capable, masterNetId, masterSysId);
+                const bool decoded = roaming::Roaming::decodeConfigAck(buffer + 6U, static_cast<uint32_t>(length - 6), capable, masterNetId, masterSysId);
                 if (decoded && capable) {
                     // identity first, so a reader that sees the flag raised also sees the identity
                     network->m_masterP25NetId = masterNetId;

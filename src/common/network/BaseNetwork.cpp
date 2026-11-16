@@ -113,7 +113,7 @@ bool BaseNetwork::writeGrantReq(const uint8_t mode, const uint32_t srcId, const 
     ::memset(buffer, 0x00U, MSG_HDR_SIZE);
 
     // bytes 4-8 carry the source radio's home WACN ID and System ID; zero means own system
-    if (!roaming::RoamingCodec::encodeGrantSource(buffer, srcNetId, srcSysId)) {
+    if (!roaming::Roaming::encodeGrantSource(buffer, srcNetId, srcSysId)) {
         return false;
     }
 

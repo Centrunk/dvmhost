@@ -2002,7 +2002,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
     case NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID:
         {
             roaming::SuidAnnouncement entry;
-            if (!roaming::RoamingCodec::decodeSuidAnnouncement(subFunc, data, length, entry)) {
+            if (!roaming::Roaming::decodeSuidAnnouncement(subFunc, data, length, entry)) {
                 LogWarning(LOG_MASTER, "PEER %u malformed SUID announcement, subFunc = $%02X, length = %u, dropped", peerId, subFunc, length);
                 return false;
             }
@@ -2039,7 +2039,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
     case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID:
         {
             std::vector<roaming::SuidAnnouncement> entries;
-            if (!roaming::RoamingCodec::decodeSuidBulk(subFunc, data, length, entries)) {
+            if (!roaming::Roaming::decodeSuidBulk(subFunc, data, length, entries)) {
                 LogWarning(LOG_MASTER, "PEER %u malformed SUID registration update, length = %u, dropped", peerId, length);
                 return false;
             }
@@ -2066,7 +2066,7 @@ bool TrafficNetwork::processSuidAnnouncement(uint32_t peerId, uint32_t ssrc, uin
     case NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID:
         {
             std::vector<roaming::SuidAnnouncement> entries;
-            if (!roaming::RoamingCodec::decodeSuidBulk(subFunc, data, length, entries)) {
+            if (!roaming::Roaming::decodeSuidBulk(subFunc, data, length, entries)) {
                 LogWarning(LOG_MASTER, "PEER %u malformed SUID affiliation update, length = %u, dropped", peerId, length);
                 return false;
             }

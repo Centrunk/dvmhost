@@ -340,7 +340,7 @@ namespace network
          *  every length is checked before any field is read, and outputs are written only on success.
          * @ingroup network_core
          */
-        class DVM_COMMON_API RoamingCodec {
+        class DVM_COMMON_API Roaming {
         public:
             /**
              * @brief Gets the exact length of a ROAMING message.

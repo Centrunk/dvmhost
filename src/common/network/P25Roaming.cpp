@@ -92,7 +92,7 @@ bool RfssIdentity::operator==(const RfssIdentity& other) const
 
 /* Gets the exact length of a ROAMING message. */
 
-uint32_t RoamingCodec::messageLength(uint8_t subFunc)
+uint32_t Roaming::messageLength(uint8_t subFunc)
 {
     switch (subFunc) {
     case NET_SUBFUNC::ROAM_SERVING_REG:
@@ -120,14 +120,14 @@ uint32_t RoamingCodec::messageLength(uint8_t subFunc)
 
 /* Classifies a ROAMING sub-function. */
 
-bool RoamingCodec::isRequest(uint8_t subFunc)
+bool Roaming::isRequest(uint8_t subFunc)
 {
     return (subFunc & 0x01U) == 0x00U;
 }
 
 /* Encodes a ROAMING message. */
 
-uint32_t RoamingCodec::encode(const RoamingMessage& msg, uint8_t* buffer, uint32_t bufferLen)
+uint32_t Roaming::encode(const RoamingMessage& msg, uint8_t* buffer, uint32_t bufferLen)
 {
     const uint32_t length = messageLength(msg.subFunc);
     if (buffer == nullptr || length == 0U || bufferLen < length) {
@@ -193,7 +193,7 @@ uint32_t RoamingCodec::encode(const RoamingMessage& msg, uint8_t* buffer, uint32
 
 /* Decodes a ROAMING message. */
 
-RoamDecode::E RoamingCodec::decode(uint8_t subFunc, const uint8_t* data, uint32_t length, RoamingMessage& msg)
+RoamDecode::E Roaming::decode(uint8_t subFunc, const uint8_t* data, uint32_t length, RoamingMessage& msg)
 {
     const uint32_t expected = messageLength(subFunc);
     if (expected == 0U) {
@@ -274,7 +274,7 @@ RoamDecode::E RoamingCodec::decode(uint8_t subFunc, const uint8_t* data, uint32_
 
 /* Decodes only the ROAMING common header. */
 
-RoamDecode::E RoamingCodec::decodeHeader(const uint8_t* data, uint32_t length, uint8_t& version, uint8_t& hopCount, uint32_t& txnId)
+RoamDecode::E Roaming::decodeHeader(const uint8_t* data, uint32_t length, uint8_t& version, uint8_t& hopCount, uint32_t& txnId)
 {
     if (data == nullptr || length < ROAM_HEADER_LEN) {
         return RoamDecode::MALFORMED_LENGTH;
@@ -288,7 +288,7 @@ RoamDecode::E RoamingCodec::decodeHeader(const uint8_t* data, uint32_t length, u
 
 /* Gets the exact length of a single SUID announcement. */
 
-uint32_t RoamingCodec::announcementLength(uint8_t subFunc)
+uint32_t Roaming::announcementLength(uint8_t subFunc)
 {
     switch (subFunc) {
     case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID:
@@ -304,7 +304,7 @@ uint32_t RoamingCodec::announcementLength(uint8_t subFunc)
 
 /* Gets the entry size of a bulk SUID announcement. */
 
-uint32_t RoamingCodec::bulkEntryLength(uint8_t subFunc)
+uint32_t Roaming::bulkEntryLength(uint8_t subFunc)
 {
     switch (subFunc) {
     case NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID:
@@ -318,7 +318,7 @@ uint32_t RoamingCodec::bulkEntryLength(uint8_t subFunc)
 
 /* Encodes a single SUID announcement. */
 
-uint32_t RoamingCodec::encodeSuidAnnouncement(uint8_t subFunc, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t bufferLen)
+uint32_t Roaming::encodeSuidAnnouncement(uint8_t subFunc, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t bufferLen)
 {
     const uint32_t length = announcementLength(subFunc);
     if (buffer == nullptr || length == 0U || bufferLen < length || !entry.suid.valid()) {
@@ -336,7 +336,7 @@ uint32_t RoamingCodec::encodeSuidAnnouncement(uint8_t subFunc, const SuidAnnounc
 
 /* Decodes a single SUID announcement. */
 
-bool RoamingCodec::decodeSuidAnnouncement(uint8_t subFunc, const uint8_t* data, uint32_t length, SuidAnnouncement& entry)
+bool Roaming::decodeSuidAnnouncement(uint8_t subFunc, const uint8_t* data, uint32_t length, SuidAnnouncement& entry)
 {
     const uint32_t expected = announcementLength(subFunc);
     if (data == nullptr || expected == 0U || length != expected) {
@@ -354,7 +354,7 @@ bool RoamingCodec::decodeSuidAnnouncement(uint8_t subFunc, const uint8_t* data, 
 
 /* Encodes a bulk SUID announcement. */
 
-std::vector<uint8_t> RoamingCodec::encodeSuidBulk(uint8_t subFunc, const std::vector<SuidAnnouncement>& entries)
+std::vector<uint8_t> Roaming::encodeSuidBulk(uint8_t subFunc, const std::vector<SuidAnnouncement>& entries)
 {
     const uint32_t entryLen = bulkEntryLength(subFunc);
     if (entryLen == 0U) {
@@ -388,7 +388,7 @@ std::vector<uint8_t> RoamingCodec::encodeSuidBulk(uint8_t subFunc, const std::ve
 
 /* Decodes a bulk SUID announcement. */
 
-bool RoamingCodec::decodeSuidBulk(uint8_t subFunc, const uint8_t* data, uint32_t length, std::vector<SuidAnnouncement>& entries)
+bool Roaming::decodeSuidBulk(uint8_t subFunc, const uint8_t* data, uint32_t length, std::vector<SuidAnnouncement>& entries)
 {
     const uint32_t entryLen = bulkEntryLength(subFunc);
     if (data == nullptr || entryLen == 0U || length < MSG_ANNC_SUID_BULK_HDR_LEN) {
@@ -424,7 +424,7 @@ bool RoamingCodec::decodeSuidBulk(uint8_t subFunc, const uint8_t* data, uint32_t
 
 /* Builds the RPTC p25Roaming JSON object. */
 
-json::object RoamingCodec::buildConfig(uint32_t netId, uint32_t sysId, uint8_t rfssId)
+json::object Roaming::buildConfig(uint32_t netId, uint32_t sysId, uint8_t rfssId)
 {
     uint32_t version = ROAM_CONFIG_VERSION;
     uint32_t rfss = rfssId;
@@ -439,7 +439,7 @@ json::object RoamingCodec::buildConfig(uint32_t netId, uint32_t sysId, uint8_t r
 
 /* Parses the RPTC p25Roaming object. */
 
-bool RoamingCodec::parseConfig(const json::object& config, RoamingPeerConfig& peer)
+bool Roaming::parseConfig(const json::object& config, RoamingPeerConfig& peer)
 {
     auto it = config.find("p25Roaming");
     if (it == config.end() || !it->second.is<json::object>()) {
@@ -477,7 +477,7 @@ bool RoamingCodec::parseConfig(const json::object& config, RoamingPeerConfig& pe
 
 /* Encodes the RPTC ACK payload. */
 
-uint32_t RoamingCodec::encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bool capable, uint32_t netId, uint32_t sysId)
+uint32_t Roaming::encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bool capable, uint32_t netId, uint32_t sysId)
 {
     if (payload == nullptr || payloadLen < 1U) {
         return 0U;
@@ -500,7 +500,7 @@ uint32_t RoamingCodec::encodeConfigAck(uint8_t* payload, uint32_t payloadLen, bo
 
 /* Decodes the RPTC ACK payload. */
 
-bool RoamingCodec::decodeConfigAck(const uint8_t* payload, uint32_t length, bool& capable, uint32_t& netId, uint32_t& sysId)
+bool Roaming::decodeConfigAck(const uint8_t* payload, uint32_t length, bool& capable, uint32_t& netId, uint32_t& sysId)
 {
     if (payload == nullptr || length < 1U) {
         return false;
@@ -529,7 +529,7 @@ bool RoamingCodec::decodeConfigAck(const uint8_t* payload, uint32_t length, bool
 
 /* Writes the source WACN ID and System ID into a GRANT_REQ message. */
 
-bool RoamingCodec::encodeGrantSource(uint8_t* buffer, uint32_t netId, uint32_t sysId)
+bool Roaming::encodeGrantSource(uint8_t* buffer, uint32_t netId, uint32_t sysId)
 {
     if (buffer == nullptr || !SUID::validSystem(netId, sysId)) {
         return false;
@@ -542,7 +542,7 @@ bool RoamingCodec::encodeGrantSource(uint8_t* buffer, uint32_t netId, uint32_t s
 
 /* Reads the source WACN ID and System ID from a GRANT_REQ message. */
 
-bool RoamingCodec::decodeGrantSource(const uint8_t* buffer, uint32_t length, uint32_t& netId, uint32_t& sysId)
+bool Roaming::decodeGrantSource(const uint8_t* buffer, uint32_t length, uint32_t& netId, uint32_t& sysId)
 {
     if (buffer == nullptr || length < ROAM_GRANT_REQ_LEN) {
         return false;
@@ -565,7 +565,7 @@ bool RoamingCodec::decodeGrantSource(const uint8_t* buffer, uint32_t length, uin
 
 /* Writes a SUID field group. */
 
-void RoamingCodec::writeSUID(const SUID& suid, uint8_t* buffer, uint32_t offset)
+void Roaming::writeSUID(const SUID& suid, uint8_t* buffer, uint32_t offset)
 {
     SET_UINT24(suid.netId, buffer, offset);                                         // WACN ID
     SET_UINT16(suid.sysId, buffer, offset + 3U);                                    // System ID
@@ -574,7 +574,7 @@ void RoamingCodec::writeSUID(const SUID& suid, uint8_t* buffer, uint32_t offset)
 
 /* Reads and range-checks a SUID field group. */
 
-bool RoamingCodec::readSUID(const uint8_t* buffer, uint32_t offset, SUID& suid)
+bool Roaming::readSUID(const uint8_t* buffer, uint32_t offset, SUID& suid)
 {
     const uint32_t netId = GET_UINT24(buffer, offset);
     const uint32_t sysId = GET_UINT16(buffer, offset + 3U);
@@ -591,7 +591,7 @@ bool RoamingCodec::readSUID(const uint8_t* buffer, uint32_t offset, SUID& suid)
 
 /* Writes an RFSS identity field group. */
 
-void RoamingCodec::writeRfss(const RfssIdentity& rfss, uint8_t* buffer, uint32_t offset)
+void Roaming::writeRfss(const RfssIdentity& rfss, uint8_t* buffer, uint32_t offset)
 {
     SET_UINT24(rfss.netId, buffer, offset);                                         // WACN ID
     SET_UINT16(rfss.sysId, buffer, offset + 3U);                                    // System ID
@@ -600,7 +600,7 @@ void RoamingCodec::writeRfss(const RfssIdentity& rfss, uint8_t* buffer, uint32_t
 
 /* Reads and range-checks an RFSS identity field group. */
 
-bool RoamingCodec::readRfss(const uint8_t* buffer, uint32_t offset, RfssIdentity& rfss)
+bool Roaming::readRfss(const uint8_t* buffer, uint32_t offset, RfssIdentity& rfss)
 {
     const uint32_t netId = GET_UINT24(buffer, offset);
     const uint32_t sysId = GET_UINT16(buffer, offset + 3U);
@@ -616,7 +616,7 @@ bool RoamingCodec::readRfss(const uint8_t* buffer, uint32_t offset, RfssIdentity
 
 /* Writes one SUID announcement entry. */
 
-void RoamingCodec::writeAnnouncementEntry(bool withTalkgroup, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t offset)
+void Roaming::writeAnnouncementEntry(bool withTalkgroup, const SuidAnnouncement& entry, uint8_t* buffer, uint32_t offset)
 {
     SET_UINT24(entry.suid.unitId, buffer, offset);                                  // Unit ID
     if (withTalkgroup) {
@@ -632,7 +632,7 @@ void RoamingCodec::writeAnnouncementEntry(bool withTalkgroup, const SuidAnnounce
 
 /* Reads and range-checks one SUID announcement entry. */
 
-bool RoamingCodec::readAnnouncementEntry(bool withTalkgroup, const uint8_t* buffer, uint32_t offset, SuidAnnouncement& entry)
+bool Roaming::readAnnouncementEntry(bool withTalkgroup, const uint8_t* buffer, uint32_t offset, SuidAnnouncement& entry)
 {
     const uint32_t unitId = GET_UINT24(buffer, offset);
     uint32_t talkgroup = 0U;
@@ -661,7 +661,7 @@ bool RoamingCodec::readAnnouncementEntry(bool withTalkgroup, const uint8_t* buff
 
 /* Reads an untrusted JSON number as an exact unsigned integer. */
 
-bool RoamingCodec::readConfigNumber(const json::object& object, const char* key, bool required, uint32_t& value)
+bool Roaming::readConfigNumber(const json::object& object, const char* key, bool required, uint32_t& value)
 {
     auto it = object.find(key);
     if (it == object.end()) {

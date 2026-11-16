@@ -132,7 +132,7 @@ namespace {
     std::vector<uint8_t> encode(const RoamingMessage& msg)
     {
         uint8_t buffer[MSG_ROAM_MAX_LEN];
-        const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+        const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
         REQUIRE(length > 0U);
         return std::vector<uint8_t>(buffer, buffer + length);
     }
@@ -145,7 +145,7 @@ namespace {
     RoamingMessage decodeSent(const SentMessage& sent)
     {
         RoamingMessage msg;
-        REQUIRE(RoamingCodec::decode(sent.subFunc, sent.data.data(), (uint32_t)sent.data.size(), msg) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(sent.subFunc, sent.data.data(), (uint32_t)sent.data.size(), msg) == RoamDecode::OK);
         return msg;
     }
 

@@ -2856,9 +2856,9 @@ void RESTAPI::restAPI_PutP25RoamingQuery(const HTTPPayload& request, HTTPPayload
 
     // untrusted JSON numbers are range-checked as doubles before any integer conversion
     roaming::SUID suid;
-    if (!roaming::RoamingCodec::readConfigNumber(req, "netId", true, suid.netId) ||
-        !roaming::RoamingCodec::readConfigNumber(req, "sysId", true, suid.sysId) ||
-        !roaming::RoamingCodec::readConfigNumber(req, "unitId", true, suid.unitId)) {
+    if (!roaming::Roaming::readConfigNumber(req, "netId", true, suid.netId) ||
+        !roaming::Roaming::readConfigNumber(req, "sysId", true, suid.sysId) ||
+        !roaming::Roaming::readConfigNumber(req, "unitId", true, suid.unitId)) {
         errorPayload(reply, "netId, sysId and unitId must be valid integers");
         return;
     }

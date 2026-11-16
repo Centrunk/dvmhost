@@ -125,7 +125,7 @@ namespace {
             for (auto it = sends.rbegin(); it != sends.rend(); ++it) {
                 if (it->subFunc == subFunc) {
                     RoamingMessage msg;
-                    REQUIRE(RoamingCodec::decode(subFunc, it->data.data(), (uint32_t)it->data.size(), msg) == RoamDecode::OK);
+                    REQUIRE(Roaming::decode(subFunc, it->data.data(), (uint32_t)it->data.size(), msg) == RoamDecode::OK);
                     return msg;
                 }
             }
@@ -140,7 +140,7 @@ namespace {
         void deliver(const RoamingMessage& msg)
         {
             uint8_t buffer[MSG_ROAM_MAX_LEN];
-            const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+            const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
             REQUIRE(length > 0U);
             client.processMessage(msg.subFunc, buffer, length);
         }

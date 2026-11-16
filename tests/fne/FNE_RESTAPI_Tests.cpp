@@ -603,7 +603,7 @@ TEST_CASE("FNE REST reports P25 roaming locations and served roamers and starts 
 
     auto deliver = [&](const network::RoamingLink& from, const RoamingMessage& msg) {
         uint8_t buffer[MSG_ROAM_MAX_LEN];
-        const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+        const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
         REQUIRE(length > 0U);
         // the service clock is wall-clock milliseconds in production; expiresIn is derived from it
         const uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(

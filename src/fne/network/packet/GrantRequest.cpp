@@ -36,7 +36,7 @@ void TrafficNetwork::PacketHandler::grantRequest(TrafficNetwork* network, NetPac
             //  proves the buffer holds a complete GRANT_REQ
             uint32_t srcNetId = 0U;
             uint32_t srcSysId = 0U;
-            if (req->length <= 0 || !roaming::RoamingCodec::decodeGrantSource(req->buffer, static_cast<uint32_t>(req->length), srcNetId, srcSysId)) {
+            if (req->length <= 0 || !roaming::Roaming::decodeGrantSource(req->buffer, static_cast<uint32_t>(req->length), srcNetId, srcSysId)) {
                 LogWarning(LOG_MASTER, "PEER %u (%s) malformed grant request, length = %d, dropped", peerId,
                     connection->identWithQualifier().c_str(), req->length);
                 return;

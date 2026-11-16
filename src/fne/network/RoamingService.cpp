@@ -194,11 +194,11 @@ void RoamingService::process(const RoamingLink& ingress, uint8_t subFunc, const 
     ActionList actions;
 
     // an unknown request is answered GEN_PROC_UNSUPPORTED; an unknown response is dropped (BACA 5.5 Gen Req 4-5)
-    if (RoamingCodec::messageLength(subFunc) == 0U) {
+    if (Roaming::messageLength(subFunc) == 0U) {
         uint8_t version = 0U;
         uint8_t hopCount = 0U;
         uint32_t txnId = 0U;
-        if (RoamingCodec::isRequest(subFunc) && RoamingCodec::decodeHeader(data, length, version, hopCount, txnId) == RoamDecode::OK &&
+        if (Roaming::isRequest(subFunc) && Roaming::decodeHeader(data, length, version, hopCount, txnId) == RoamDecode::OK &&
             version == ROAM_VERSION) {
             LogWarning(LOG_MASTER, "P25 ROAMING, %s %u unsupported request subFunc = $%02X, txnId = %08X, answered GEN_PROC_UNSUPPORTED",
                 linkName(ingress), ingress.peerId, subFunc, txnId);
@@ -218,7 +218,7 @@ void RoamingService::process(const RoamingLink& ingress, uint8_t subFunc, const 
     }
 
     RoamingMessage msg;
-    const RoamDecode::E status = RoamingCodec::decode(subFunc, data, length, msg);
+    const RoamDecode::E status = Roaming::decode(subFunc, data, length, msg);
     if (status != RoamDecode::OK) {
         LogWarning(LOG_MASTER, "P25 ROAMING, %s %u malformed message, subFunc = $%02X, length = %u, status = %u, dropped",
             linkName(ingress), ingress.peerId, subFunc, length, (uint32_t)status);
@@ -249,7 +249,7 @@ void RoamingService::process(const RoamingLink& ingress, uint8_t subFunc, const 
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (RoamingCodec::isRequest(msg.subFunc)) {
+        if (Roaming::isRequest(msg.subFunc)) {
             handleRequest(actions, ingress, msg, nowMs, authorized, localPeer);
         }
         else {
@@ -503,7 +503,7 @@ uint32_t RoamingService::nextTxnId(const RoamingLink& link)
 void RoamingService::queueSend(ActionList& actions, const RoamingLink& link, const RoamingMessage& msg) const
 {
     uint8_t buffer[MSG_ROAM_MAX_LEN];
-    const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+    const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
     if (length == 0U) {
         LogError(LOG_MASTER, "P25 ROAMING, failed to encode subFunc = $%02X, txnId = %08X", msg.subFunc, msg.txnId);
         return;

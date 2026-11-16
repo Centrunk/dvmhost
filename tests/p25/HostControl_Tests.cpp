@@ -3529,7 +3529,7 @@ static network::roaming::RoamingMessage lastRoamingWrite(P25HostHarness& harness
     for (auto it = writes.rbegin(); it != writes.rend(); ++it) {
         if (it->subFunc == subFunc) {
             network::roaming::RoamingMessage msg;
-            REQUIRE(network::roaming::RoamingCodec::decode(subFunc, it->data.data(), (uint32_t)it->data.size(), msg) ==
+            REQUIRE(network::roaming::Roaming::decode(subFunc, it->data.data(), (uint32_t)it->data.size(), msg) ==
                 network::roaming::RoamDecode::OK);
             return msg;
         }
@@ -3546,7 +3546,7 @@ static network::roaming::RoamingMessage lastRoamingWrite(P25HostHarness& harness
 static void injectRoaming(P25HostHarness& harness, const network::roaming::RoamingMessage& msg)
 {
     uint8_t buffer[network::roaming::MSG_ROAM_MAX_LEN];
-    const uint32_t length = network::roaming::RoamingCodec::encode(msg, buffer, sizeof(buffer));
+    const uint32_t length = network::roaming::Roaming::encode(msg, buffer, sizeof(buffer));
     REQUIRE(length > 0U);
     harness.network()->injectRoamingForTest(msg.subFunc, std::vector<uint8_t>(buffer, buffer + length));
 }
@@ -3772,7 +3772,7 @@ TEST_CASE("P25 roaming Serving Registration through the home system", "[p25][hos
         answer.expires = ROAM_DEFAULT_EXPIRES;
         answer.access = RoamAccess::FULL;
         uint8_t buffer[MSG_ROAM_MAX_LEN];
-        const uint32_t length = RoamingCodec::encode(answer, buffer, sizeof(buffer));
+        const uint32_t length = Roaming::encode(answer, buffer, sizeof(buffer));
         REQUIRE(length == MSG_ROAM_MAX_LEN);
         buffer[19U] = 0x03U;                                                        // access
         harness.network()->injectRoamingForTest(answer.subFunc, std::vector<uint8_t>(buffer, buffer + length));

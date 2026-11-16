@@ -131,7 +131,7 @@ namespace {
     {
         uint8_t buffer[MSG_ROAM_MAX_LEN];
         ::memset(buffer, 0xA5U, sizeof(buffer));
-        const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
+        const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
         return std::vector<uint8_t>(buffer, buffer + length);
     }
 
@@ -157,23 +157,23 @@ namespace {
 TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
 {
     SECTION("Message_Lengths_Match_The_Spec_Table") {
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_SERVING_REG) == 21U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_SERVING_REG_RSP) == 21U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_SERVING_DEREG) == 20U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_SERVING_DEREG_RSP) == 15U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_HOME_DEREG) == 15U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_HOME_DEREG_RSP) == 15U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_QUERY) == 15U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_QUERY_RSP) == 16U);
-        CHECK(RoamingCodec::messageLength(NET_SUBFUNC::ROAM_GEN_RSP) == 8U);
-        CHECK(RoamingCodec::messageLength(0x10U) == 0U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_SERVING_REG) == 21U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_SERVING_REG_RSP) == 21U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_SERVING_DEREG) == 20U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_SERVING_DEREG_RSP) == 15U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_HOME_DEREG) == 15U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_HOME_DEREG_RSP) == 15U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_QUERY) == 15U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_QUERY_RSP) == 16U);
+        CHECK(Roaming::messageLength(NET_SUBFUNC::ROAM_GEN_RSP) == 8U);
+        CHECK(Roaming::messageLength(0x10U) == 0U);
 
-        CHECK(RoamingCodec::isRequest(NET_SUBFUNC::ROAM_SERVING_REG));
-        CHECK(RoamingCodec::isRequest(NET_SUBFUNC::ROAM_QUERY));
-        CHECK(RoamingCodec::isRequest(0x10U));
-        CHECK_FALSE(RoamingCodec::isRequest(NET_SUBFUNC::ROAM_SERVING_REG_RSP));
-        CHECK_FALSE(RoamingCodec::isRequest(NET_SUBFUNC::ROAM_GEN_RSP));
-        CHECK_FALSE(RoamingCodec::isRequest(0x11U));
+        CHECK(Roaming::isRequest(NET_SUBFUNC::ROAM_SERVING_REG));
+        CHECK(Roaming::isRequest(NET_SUBFUNC::ROAM_QUERY));
+        CHECK(Roaming::isRequest(0x10U));
+        CHECK_FALSE(Roaming::isRequest(NET_SUBFUNC::ROAM_SERVING_REG_RSP));
+        CHECK_FALSE(Roaming::isRequest(NET_SUBFUNC::ROAM_GEN_RSP));
+        CHECK_FALSE(Roaming::isRequest(0x11U));
     }
 
     SECTION("Known_Answer_Vectors") {
@@ -224,7 +224,7 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
     SECTION("Decode_Reads_The_Known_Answer_Vectors") {
         const std::vector<uint8_t> reg = bytes({ HDR, SUID_BYTES, RFSS_BYTES, { 0x01U } });
         RoamingMessage msg;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG, reg.data(), (uint32_t)reg.size(), msg) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_REG, reg.data(), (uint32_t)reg.size(), msg) == RoamDecode::OK);
         CHECK(msg.subFunc == NET_SUBFUNC::ROAM_SERVING_REG);
         CHECK(msg.version == 1U);
         CHECK(msg.hopCount == 8U);
@@ -234,26 +234,26 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         CHECK(msg.presence == RoamPresence::CONFIRMED);
 
         const std::vector<uint8_t> rsp = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, 0x02U, 0x80U } });
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, rsp.data(), (uint32_t)rsp.size(), msg) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, rsp.data(), (uint32_t)rsp.size(), msg) == RoamDecode::OK);
         CHECK(msg.result == RoamResult::SUCCESS);
         CHECK(msg.expires == 18000U);
         CHECK(msg.access == RoamAccess::EMERGENCY_ONLY);
         CHECK(msg.flags == ROAM_FLAG_RADIO_INHIBITED);
 
         const std::vector<uint8_t> qrsp = bytes({ HDR, SUID_BYTES, { 0x22U, 0x00U } });
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_QUERY_RSP, qrsp.data(), (uint32_t)qrsp.size(), msg) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_QUERY_RSP, qrsp.data(), (uint32_t)qrsp.size(), msg) == RoamDecode::OK);
         CHECK(msg.result == RoamResult::MME_SU_UNKNOWN);
         CHECK(msg.interested == 0U);
 
         const std::vector<uint8_t> gen = { 0x01U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U, 0x10U, 0x1CU };
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_GEN_RSP, gen.data(), (uint32_t)gen.size(), msg) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_GEN_RSP, gen.data(), (uint32_t)gen.size(), msg) == RoamDecode::OK);
         CHECK(msg.rejectedSubFunc == 0x10U);
         CHECK(msg.result == RoamResult::GEN_PROC_UNSUPPORTED);
 
         // the remaining five sub-functions (header, SUID $DEE00.$911.0F4240, body)
         const std::vector<uint8_t> sdereg = bytes({ { 0x01U, 0x07U, 0x00U, 0x00U, 0x00U, 0x2AU }, SUID_BYTES, RFSS_BYTES });
         RoamingMessage d1;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, sdereg.data(), (uint32_t)sdereg.size(), d1) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, sdereg.data(), (uint32_t)sdereg.size(), d1) == RoamDecode::OK);
         CHECK(d1.subFunc == NET_SUBFUNC::ROAM_SERVING_DEREG);
         CHECK(d1.hopCount == 7U);
         CHECK(d1.txnId == 0x0000002AU);
@@ -262,26 +262,26 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
 
         const std::vector<uint8_t> sderegRsp = bytes({ HDR, SUID_BYTES, { 0x57U } });
         RoamingMessage d2;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG_RSP, sderegRsp.data(), (uint32_t)sderegRsp.size(), d2) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_DEREG_RSP, sderegRsp.data(), (uint32_t)sderegRsp.size(), d2) == RoamDecode::OK);
         CHECK(d2.txnId == 0x12345678U);
         CHECK(d2.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
         CHECK(d2.result == RoamResult::MME_OBJ_NOT_REG_AT_SERV);
 
         const std::vector<uint8_t> hdereg = bytes({ HDR, SUID_BYTES, { 0x01U } });
         RoamingMessage d3;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, hdereg.data(), (uint32_t)hdereg.size(), d3) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_HOME_DEREG, hdereg.data(), (uint32_t)hdereg.size(), d3) == RoamDecode::OK);
         CHECK(d3.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
         CHECK(d3.qualifier == RoamQualifier::NON_ROAMED);
 
         const std::vector<uint8_t> hderegRsp = bytes({ HDR, SUID_BYTES, { 0x22U } });
         RoamingMessage d4;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, hderegRsp.data(), (uint32_t)hderegRsp.size(), d4) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_HOME_DEREG_RSP, hderegRsp.data(), (uint32_t)hderegRsp.size(), d4) == RoamDecode::OK);
         CHECK(d4.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
         CHECK(d4.result == RoamResult::MME_SU_UNKNOWN);
 
         const std::vector<uint8_t> query = bytes({ { 0x01U, 0x01U, 0xFFU, 0xFFU, 0xFFU, 0xFFU }, SUID_BYTES, { 0x01U } });
         RoamingMessage d5;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_QUERY, query.data(), (uint32_t)query.size(), d5) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_QUERY, query.data(), (uint32_t)query.size(), d5) == RoamDecode::OK);
         CHECK(d5.hopCount == 1U);
         CHECK(d5.txnId == 0xFFFFFFFFU);
         CHECK(d5.suid == SUID{ 0xDEE00U, 0x911U, 0x0F4240U });
@@ -294,19 +294,19 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         for (uint8_t access : { 0x00U, 0x01U, 0x02U }) {
             INFO("access " << (uint32_t)access);
             const std::vector<uint8_t> ok = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, access, 0x80U } });
-            CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, ok.data(), (uint32_t)ok.size(), msg) == RoamDecode::OK);
+            CHECK(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, ok.data(), (uint32_t)ok.size(), msg) == RoamDecode::OK);
         }
 
         for (uint8_t access : { 0x03U, 0x7FU, 0xFFU }) {
             INFO("access " << (uint32_t)access);
             const std::vector<uint8_t> bad = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, access, 0x00U } });
-            CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, bad.data(), (uint32_t)bad.size(), msg) == RoamDecode::OUT_OF_RANGE);
+            CHECK(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, bad.data(), (uint32_t)bad.size(), msg) == RoamDecode::OUT_OF_RANGE);
         }
 
         for (uint8_t flags : { 0x01U, 0x40U, 0x7FU, 0x81U, 0xFFU }) {
             INFO("flags " << (uint32_t)flags);
             const std::vector<uint8_t> bad = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, 0x01U, flags } });
-            CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, bad.data(), (uint32_t)bad.size(), msg) == RoamDecode::OUT_OF_RANGE);
+            CHECK(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, bad.data(), (uint32_t)bad.size(), msg) == RoamDecode::OUT_OF_RANGE);
         }
     }
 
@@ -317,22 +317,22 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         uint8_t buffer[MSG_ROAM_MAX_LEN + 1U];
         for (uint8_t subFunc : subFuncs) {
             RoamingMessage msg = baseMessage(subFunc);
-            const uint32_t length = RoamingCodec::encode(msg, buffer, sizeof(buffer));
-            REQUIRE(length == RoamingCodec::messageLength(subFunc));
+            const uint32_t length = Roaming::encode(msg, buffer, sizeof(buffer));
+            REQUIRE(length == Roaming::messageLength(subFunc));
             buffer[length] = 0x00U;
 
             RoamingMessage untouched;
             untouched.txnId = 0xCAFEF00DU;
             for (uint32_t len = 0U; len < length; len++) {
                 INFO("subFunc " << (uint32_t)subFunc << " length " << len);
-                CHECK(RoamingCodec::decode(subFunc, buffer, len, untouched) == RoamDecode::MALFORMED_LENGTH);
+                CHECK(Roaming::decode(subFunc, buffer, len, untouched) == RoamDecode::MALFORMED_LENGTH);
             }
-            CHECK(RoamingCodec::decode(subFunc, buffer, length + 1U, untouched) == RoamDecode::MALFORMED_LENGTH);
+            CHECK(Roaming::decode(subFunc, buffer, length + 1U, untouched) == RoamDecode::MALFORMED_LENGTH);
             CHECK(untouched.txnId == 0xCAFEF00DU);
-            CHECK(RoamingCodec::decode(subFunc, nullptr, length, untouched) == RoamDecode::MALFORMED_LENGTH);
+            CHECK(Roaming::decode(subFunc, nullptr, length, untouched) == RoamDecode::MALFORMED_LENGTH);
 
             // a short output buffer is refused rather than overrun
-            CHECK(RoamingCodec::encode(msg, buffer, length - 1U) == 0U);
+            CHECK(Roaming::encode(msg, buffer, length - 1U) == 0U);
         }
     }
 
@@ -345,7 +345,7 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         const std::vector<uint8_t> max = encodeMessage(msg);
         CHECK(max == bytes({ HDR, { 0x0FU, 0xFFU, 0xFFU, 0x0FU, 0xFFU, 0xFFU, 0xFFU, 0xFFU }, { 0x00U } }));
         RoamingMessage decoded;
-        REQUIRE(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, max.data(), (uint32_t)max.size(), decoded) == RoamDecode::OK);
+        REQUIRE(Roaming::decode(NET_SUBFUNC::ROAM_HOME_DEREG, max.data(), (uint32_t)max.size(), decoded) == RoamDecode::OK);
         CHECK(decoded.suid == SUID{ 0xFFFFFU, 0xFFFU, 0xFFFFFFU });
 
         msg.suid = SUID{ 0x100000U, 0x001U, 1U };
@@ -364,13 +364,13 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         untouched.txnId = 0xCAFEF00DU;
         untouched.suid = SUID{ 0x00001U, 0x002U, 3U };
         std::vector<uint8_t> wacn = bytes({ HDR, { 0x10U, 0x00U, 0x00U, 0x09U, 0x11U, 0x0FU, 0x42U, 0x40U }, { 0x00U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, wacn.data(), (uint32_t)wacn.size(), untouched) == RoamDecode::OUT_OF_RANGE);
+        CHECK(Roaming::decode(NET_SUBFUNC::ROAM_HOME_DEREG, wacn.data(), (uint32_t)wacn.size(), untouched) == RoamDecode::OUT_OF_RANGE);
         std::vector<uint8_t> sys = bytes({ HDR, { 0x0DU, 0xEEU, 0x00U, 0x10U, 0x00U, 0x0FU, 0x42U, 0x40U }, { 0x00U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, sys.data(), (uint32_t)sys.size(), untouched) == RoamDecode::OUT_OF_RANGE);
+        CHECK(Roaming::decode(NET_SUBFUNC::ROAM_HOME_DEREG, sys.data(), (uint32_t)sys.size(), untouched) == RoamDecode::OUT_OF_RANGE);
         std::vector<uint8_t> rfss = bytes({ HDR, SUID_BYTES, { 0x0DU, 0xEEU, 0x00U, 0x10U, 0x00U, 0x01U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, rfss.data(), (uint32_t)rfss.size(), untouched) == RoamDecode::OUT_OF_RANGE);
+        CHECK(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_DEREG, rfss.data(), (uint32_t)rfss.size(), untouched) == RoamDecode::OUT_OF_RANGE);
         const std::vector<uint8_t> access = bytes({ HDR, SUID_BYTES, { 0x00U, 0x00U, 0x00U, 0x46U, 0x50U, 0x03U, 0x00U } });
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, access.data(), (uint32_t)access.size(), untouched) == RoamDecode::OUT_OF_RANGE);
+        CHECK(Roaming::decode(NET_SUBFUNC::ROAM_SERVING_REG_RSP, access.data(), (uint32_t)access.size(), untouched) == RoamDecode::OUT_OF_RANGE);
         CHECK(untouched.txnId == 0xCAFEF00DU);
         CHECK(untouched.suid == SUID{ 0x00001U, 0x002U, 3U });
         CHECK(untouched.subFunc == 0U);
@@ -380,20 +380,20 @@ TEST_CASE("P25 roaming message codec", "[network][roaming][codec]")
         std::vector<uint8_t> v2 = bytes({ { 0x02U, 0x08U, 0x12U, 0x34U, 0x56U, 0x78U }, SUID_BYTES, { 0x00U } });
         RoamingMessage msg;
         msg.txnId = 0xCAFEF00DU;
-        CHECK(RoamingCodec::decode(NET_SUBFUNC::ROAM_HOME_DEREG, v2.data(), (uint32_t)v2.size(), msg) == RoamDecode::BAD_VERSION);
+        CHECK(Roaming::decode(NET_SUBFUNC::ROAM_HOME_DEREG, v2.data(), (uint32_t)v2.size(), msg) == RoamDecode::BAD_VERSION);
         CHECK(msg.txnId == 0xCAFEF00DU);                                               // untouched on BAD_VERSION
         CHECK(msg.version == 1U);
         CHECK(msg.suid == SUID());
-        CHECK(RoamingCodec::decode(0x10U, v2.data(), (uint32_t)v2.size(), msg) == RoamDecode::UNKNOWN_SUBFUNC);
+        CHECK(Roaming::decode(0x10U, v2.data(), (uint32_t)v2.size(), msg) == RoamDecode::UNKNOWN_SUBFUNC);
 
         uint8_t version = 0U;
         uint8_t hopCount = 0U;
         uint32_t txnId = 0U;
-        CHECK(RoamingCodec::decodeHeader(HDR.data(), (uint32_t)HDR.size(), version, hopCount, txnId) == RoamDecode::OK);
+        CHECK(Roaming::decodeHeader(HDR.data(), (uint32_t)HDR.size(), version, hopCount, txnId) == RoamDecode::OK);
         CHECK(version == 1U);
         CHECK(hopCount == 8U);
         CHECK(txnId == 0x12345678U);
-        CHECK(RoamingCodec::decodeHeader(HDR.data(), 5U, version, hopCount, txnId) == RoamDecode::MALFORMED_LENGTH);
+        CHECK(Roaming::decodeHeader(HDR.data(), 5U, version, hopCount, txnId) == RoamDecode::MALFORMED_LENGTH);
     }
 }
 
@@ -413,101 +413,101 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
             NET_SUBFUNC::ANNC_SUBFUNC_GRP_UNAFFIL_SUID };
         for (uint8_t subFunc : unitForms) {
             INFO("subFunc " << (uint32_t)subFunc);
-            REQUIRE(RoamingCodec::encodeSuidAnnouncement(subFunc, entry, buffer, sizeof(buffer)) == 8U);
+            REQUIRE(Roaming::encodeSuidAnnouncement(subFunc, entry, buffer, sizeof(buffer)) == 8U);
             CHECK(std::vector<uint8_t>(buffer, buffer + 8U) == unitBytes);
 
             SuidAnnouncement decoded;
-            REQUIRE(RoamingCodec::decodeSuidAnnouncement(subFunc, unitBytes.data(), 8U, decoded));
+            REQUIRE(Roaming::decodeSuidAnnouncement(subFunc, unitBytes.data(), 8U, decoded));
             CHECK(decoded.suid == suid);
             CHECK(decoded.talkgroup == 0U);
             for (uint32_t len = 0U; len < 8U; len++) {
-                CHECK_FALSE(RoamingCodec::decodeSuidAnnouncement(subFunc, unitBytes.data(), len, decoded));
+                CHECK_FALSE(Roaming::decodeSuidAnnouncement(subFunc, unitBytes.data(), len, decoded));
             }
             const std::vector<uint8_t> longer = bytes({ unitBytes, { 0x00U } });
-            CHECK_FALSE(RoamingCodec::decodeSuidAnnouncement(subFunc, longer.data(), 9U, decoded));
+            CHECK_FALSE(Roaming::decodeSuidAnnouncement(subFunc, longer.data(), 9U, decoded));
         }
 
-        REQUIRE(RoamingCodec::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, entry, buffer, sizeof(buffer)) == 11U);
+        REQUIRE(Roaming::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, entry, buffer, sizeof(buffer)) == 11U);
         CHECK(std::vector<uint8_t>(buffer, buffer + 11U) == affilBytes);
         SuidAnnouncement decoded;
-        REQUIRE(RoamingCodec::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, affilBytes.data(), 11U, decoded));
+        REQUIRE(Roaming::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, affilBytes.data(), 11U, decoded));
         CHECK(decoded.suid == suid);
         CHECK(decoded.talkgroup == 4001U);
         for (uint32_t len = 0U; len < 11U; len++) {
-            CHECK_FALSE(RoamingCodec::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, affilBytes.data(), len, decoded));
+            CHECK_FALSE(Roaming::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, affilBytes.data(), len, decoded));
         }
 
         // a non-SUID announcement sub-function is not a SUID form
-        CHECK(RoamingCodec::announcementLength(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG) == 0U);
-        CHECK(RoamingCodec::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, entry, buffer, sizeof(buffer)) == 0U);
+        CHECK(Roaming::announcementLength(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG) == 0U);
+        CHECK(Roaming::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, entry, buffer, sizeof(buffer)) == 0U);
     }
 
     SECTION("Single_Announcement_Ranges") {
         uint8_t buffer[MSG_ANNC_GRP_AFFIL_SUID_LEN];
         SuidAnnouncement entry;
         entry.suid = SUID{ 0x100000U, 0x911U, 1U };
-        CHECK(RoamingCodec::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, entry, buffer, sizeof(buffer)) == 0U);
+        CHECK(Roaming::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, entry, buffer, sizeof(buffer)) == 0U);
         entry.suid = suid;
         entry.talkgroup = 0x1000000U;
-        CHECK(RoamingCodec::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, entry, buffer, sizeof(buffer)) == 0U);
+        CHECK(Roaming::encodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_GRP_AFFIL_SUID, entry, buffer, sizeof(buffer)) == 0U);
 
         const std::vector<uint8_t> badWacn = { 0x0FU, 0x42U, 0x40U, 0x10U, 0x00U, 0x00U, 0x09U, 0x11U };
         SuidAnnouncement decoded;
-        CHECK_FALSE(RoamingCodec::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, badWacn.data(), 8U, decoded));
+        CHECK_FALSE(Roaming::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, badWacn.data(), 8U, decoded));
         const std::vector<uint8_t> badSys = { 0x0FU, 0x42U, 0x40U, 0x0DU, 0xEEU, 0x00U, 0x10U, 0x00U };
-        CHECK_FALSE(RoamingCodec::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, badSys.data(), 8U, decoded));
+        CHECK_FALSE(Roaming::decodeSuidAnnouncement(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, badSys.data(), 8U, decoded));
     }
 
     SECTION("Bulk_Announcements_Known_Bytes_And_Count_Checks") {
         std::vector<SuidAnnouncement> regs(2U);
         regs[0U].suid = suid;
         regs[1U].suid = SUID{ 0xDEE00U, 0x911U, 0x000001U };
-        const std::vector<uint8_t> regBytes = RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, regs);
+        const std::vector<uint8_t> regBytes = Roaming::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, regs);
         CHECK(regBytes == bytes({ { 0x00U, 0x00U, 0x00U, 0x02U }, unitBytes,
             { 0x00U, 0x00U, 0x01U, 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U } }));
 
         std::vector<SuidAnnouncement> affs(1U);
         affs[0U].suid = suid;
         affs[0U].talkgroup = 4001U;
-        const std::vector<uint8_t> affBytes = RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affs);
+        const std::vector<uint8_t> affBytes = Roaming::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affs);
         CHECK(affBytes == bytes({ { 0x00U, 0x00U, 0x00U, 0x01U }, affilBytes }));
 
-        CHECK(RoamingCodec::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, std::vector<SuidAnnouncement>()) ==
+        CHECK(Roaming::encodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, std::vector<SuidAnnouncement>()) ==
             std::vector<uint8_t>({ 0x00U, 0x00U, 0x00U, 0x00U }));
 
         std::vector<SuidAnnouncement> decoded;
-        REQUIRE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, regBytes.data(), (uint32_t)regBytes.size(), decoded));
+        REQUIRE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, regBytes.data(), (uint32_t)regBytes.size(), decoded));
         REQUIRE(decoded.size() == 2U);
         CHECK(decoded[1U].suid.unitId == 1U);
-        REQUIRE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affBytes.data(), (uint32_t)affBytes.size(), decoded));
+        REQUIRE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_AFFILS_SUID, affBytes.data(), (uint32_t)affBytes.size(), decoded));
         REQUIRE(decoded.size() == 1U);
         CHECK(decoded[0U].talkgroup == 4001U);
 
         // count overflow, count/length mismatch, truncated count and a bad entry are rejected without output
         decoded.assign(3U, SuidAnnouncement());
         const std::vector<uint8_t> overflow = bytes({ { 0xFFU, 0xFFU, 0xFFU, 0xFFU }, unitBytes });
-        CHECK_FALSE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, overflow.data(), (uint32_t)overflow.size(), decoded));
+        CHECK_FALSE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, overflow.data(), (uint32_t)overflow.size(), decoded));
         const std::vector<uint8_t> shortBy = bytes({ { 0x00U, 0x00U, 0x00U, 0x02U }, unitBytes });
-        CHECK_FALSE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, shortBy.data(), (uint32_t)shortBy.size(), decoded));
+        CHECK_FALSE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, shortBy.data(), (uint32_t)shortBy.size(), decoded));
         const std::vector<uint8_t> trailing = bytes({ { 0x00U, 0x00U, 0x00U, 0x01U }, unitBytes, { 0x00U } });
-        CHECK_FALSE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, trailing.data(), (uint32_t)trailing.size(), decoded));
-        CHECK_FALSE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, overflow.data(), 3U, decoded));
+        CHECK_FALSE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, trailing.data(), (uint32_t)trailing.size(), decoded));
+        CHECK_FALSE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, overflow.data(), 3U, decoded));
         const std::vector<uint8_t> badEntry = bytes({ { 0x00U, 0x00U, 0x00U, 0x01U }, { 0x0FU, 0x42U, 0x40U, 0x10U, 0x00U, 0x00U, 0x09U, 0x11U } });
-        CHECK_FALSE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, badEntry.data(), (uint32_t)badEntry.size(), decoded));
+        CHECK_FALSE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REGS_SUID, badEntry.data(), (uint32_t)badEntry.size(), decoded));
         CHECK(decoded.size() == 3U);
-        CHECK_FALSE(RoamingCodec::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, regBytes.data(), (uint32_t)regBytes.size(), decoded));
+        CHECK_FALSE(Roaming::decodeSuidBulk(NET_SUBFUNC::ANNC_SUBFUNC_UNIT_REG_SUID, regBytes.data(), (uint32_t)regBytes.size(), decoded));
     }
 
     SECTION("RPTC_JSON_Object") {
         json::value v;
         REQUIRE(json::parse(v, std::string("{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 315, \"rfssId\": 1 }}")).empty());
         RoamingPeerConfig peer;
-        REQUIRE(RoamingCodec::parseConfig(v.get<json::object>(), peer));
+        REQUIRE(Roaming::parseConfig(v.get<json::object>(), peer));
         CHECK(peer.netId == 0xDEE00U);
         CHECK(peer.sysId == 0x13BU);
         CHECK(peer.rfssId == 0x01U);
 
-        json::object roam = RoamingCodec::buildConfig(0xDEE00U, 0x13BU, 0x01U);
+        json::object roam = Roaming::buildConfig(0xDEE00U, 0x13BU, 0x01U);
         CHECK(roam["version"].get<uint32_t>() == 1U);
         CHECK(roam["netId"].get<uint32_t>() == 912896U);
         CHECK(roam["sysId"].get<uint32_t>() == 315U);
@@ -516,7 +516,7 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
         json::object config = json::object();
         config["p25Roaming"].set<json::object>(roam);
         RoamingPeerConfig built;
-        REQUIRE(RoamingCodec::parseConfig(config, built));
+        REQUIRE(Roaming::parseConfig(config, built));
         CHECK(built.netId == 0xDEE00U);
 
         const char* rejected[5U] = {
@@ -531,7 +531,7 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
             json::value r;
             REQUIRE(json::parse(r, std::string(text)).empty());
             RoamingPeerConfig out;
-            CHECK_FALSE(RoamingCodec::parseConfig(r.get<json::object>(), out));
+            CHECK_FALSE(Roaming::parseConfig(r.get<json::object>(), out));
         }
     }
 
@@ -555,7 +555,7 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
             out.netId = 7U;
             out.sysId = 8U;
             out.rfssId = 9U;
-            CHECK_FALSE(RoamingCodec::parseConfig(r.get<json::object>(), out));
+            CHECK_FALSE(Roaming::parseConfig(r.get<json::object>(), out));
             CHECK(out.netId == 7U);
             CHECK(out.sysId == 8U);
             CHECK(out.rfssId == 9U);
@@ -566,51 +566,51 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
         REQUIRE(json::parse(ok, std::string("{\"p25Roaming\": { \"version\": 1, \"netId\": 912896, \"sysId\": 315 }}")).empty());
         RoamingPeerConfig peer;
         peer.rfssId = 9U;
-        REQUIRE(RoamingCodec::parseConfig(ok.get<json::object>(), peer));
+        REQUIRE(Roaming::parseConfig(ok.get<json::object>(), peer));
         CHECK(peer.rfssId == 0U);
     }
 
     SECTION("RPTC_ACK_Payload") {
         uint8_t payload[CONFIG_ACK_ROAMING_LEN];
-        REQUIRE(RoamingCodec::encodeConfigAck(payload, sizeof(payload), true, 0xDEE00U, 0x13BU) == 6U);
+        REQUIRE(Roaming::encodeConfigAck(payload, sizeof(payload), true, 0xDEE00U, 0x13BU) == 6U);
         CHECK(std::vector<uint8_t>(payload, payload + 6U) == std::vector<uint8_t>({ 0xC0U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU }));
-        REQUIRE(RoamingCodec::encodeConfigAck(payload, sizeof(payload), false, 0xDEE00U, 0x13BU) == 1U);
+        REQUIRE(Roaming::encodeConfigAck(payload, sizeof(payload), false, 0xDEE00U, 0x13BU) == 1U);
         CHECK(payload[0U] == 0x80U);
-        CHECK(RoamingCodec::encodeConfigAck(payload, 5U, true, 0xDEE00U, 0x13BU) == 0U);
+        CHECK(Roaming::encodeConfigAck(payload, 5U, true, 0xDEE00U, 0x13BU) == 0U);
 
         bool capable = true;
         uint32_t netId = 1U;
         uint32_t sysId = 1U;
         const uint8_t legacy[5U] = { 0x80U, 0x00U, 0x00U, 0x00U, 0x00U };
-        REQUIRE(RoamingCodec::decodeConfigAck(legacy, sizeof(legacy), capable, netId, sysId));
+        REQUIRE(Roaming::decodeConfigAck(legacy, sizeof(legacy), capable, netId, sysId));
         CHECK_FALSE(capable);
 
         const uint8_t extended[10U] = { 0xC0U, 0x0DU, 0xEEU, 0x00U, 0x01U, 0x3BU, 0x00U, 0x00U, 0x00U, 0x00U };
-        REQUIRE(RoamingCodec::decodeConfigAck(extended, sizeof(extended), capable, netId, sysId));
+        REQUIRE(Roaming::decodeConfigAck(extended, sizeof(extended), capable, netId, sysId));
         CHECK(capable);
         CHECK(netId == 0xDEE00U);
         CHECK(sysId == 0x13BU);
 
-        CHECK_FALSE(RoamingCodec::decodeConfigAck(extended, 3U, capable, netId, sysId));
+        CHECK_FALSE(Roaming::decodeConfigAck(extended, 3U, capable, netId, sysId));
         const uint8_t badWacn[6U] = { 0xC0U, 0x10U, 0x00U, 0x00U, 0x01U, 0x3BU };
-        CHECK_FALSE(RoamingCodec::decodeConfigAck(badWacn, sizeof(badWacn), capable, netId, sysId));
-        CHECK_FALSE(RoamingCodec::decodeConfigAck(extended, 0U, capable, netId, sysId));
+        CHECK_FALSE(Roaming::decodeConfigAck(badWacn, sizeof(badWacn), capable, netId, sysId));
+        CHECK_FALSE(Roaming::decodeConfigAck(extended, 0U, capable, netId, sysId));
 
         // a zero WACN ID or System ID is rejected, as parseConfig does, and the outputs are left untouched
         capable = false;
         netId = 0xAAAAAU;
         sysId = 0x555U;
         const uint8_t zeroWacn[6U] = { 0xC0U, 0x00U, 0x00U, 0x00U, 0x01U, 0x3BU };
-        CHECK_FALSE(RoamingCodec::decodeConfigAck(zeroWacn, sizeof(zeroWacn), capable, netId, sysId));
+        CHECK_FALSE(Roaming::decodeConfigAck(zeroWacn, sizeof(zeroWacn), capable, netId, sysId));
         const uint8_t zeroSysId[6U] = { 0xC0U, 0x0DU, 0xEEU, 0x00U, 0x00U, 0x00U };
-        CHECK_FALSE(RoamingCodec::decodeConfigAck(zeroSysId, sizeof(zeroSysId), capable, netId, sysId));
+        CHECK_FALSE(Roaming::decodeConfigAck(zeroSysId, sizeof(zeroSysId), capable, netId, sysId));
         CHECK_FALSE(capable);
         CHECK(netId == 0xAAAAAU);
         CHECK(sysId == 0x555U);
 
         ::memset(payload, 0x5AU, sizeof(payload));
-        CHECK(RoamingCodec::encodeConfigAck(payload, sizeof(payload), true, 0U, 0x13BU) == 0U);
-        CHECK(RoamingCodec::encodeConfigAck(payload, sizeof(payload), true, 0xDEE00U, 0U) == 0U);
+        CHECK(Roaming::encodeConfigAck(payload, sizeof(payload), true, 0U, 0x13BU) == 0U);
+        CHECK(Roaming::encodeConfigAck(payload, sizeof(payload), true, 0xDEE00U, 0U) == 0U);
         for (uint32_t i = 0U; i < sizeof(payload); i++) {
             CHECK(payload[i] == 0x5AU);
         }
@@ -619,7 +619,7 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
     SECTION("Grant_Request_Source_System") {
         uint8_t grant[ROAM_GRANT_REQ_LEN];
         ::memset(grant, 0x00U, sizeof(grant));
-        REQUIRE(RoamingCodec::encodeGrantSource(grant, 0xDEE00U, 0x911U));
+        REQUIRE(Roaming::encodeGrantSource(grant, 0xDEE00U, 0x911U));
         const uint8_t expected[5U] = { 0x0DU, 0xEEU, 0x00U, 0x09U, 0x11U };
         for (uint32_t i = 0U; i < ROAM_GRANT_REQ_LEN; i++) {
             INFO("byte " << i);
@@ -628,23 +628,23 @@ TEST_CASE("P25 roaming announcement, login and grant codecs", "[network][roaming
 
         uint32_t netId = 0U;
         uint32_t sysId = 0U;
-        REQUIRE(RoamingCodec::decodeGrantSource(grant, sizeof(grant), netId, sysId));
+        REQUIRE(Roaming::decodeGrantSource(grant, sizeof(grant), netId, sysId));
         CHECK(netId == 0xDEE00U);
         CHECK(sysId == 0x911U);
 
         uint8_t zero[ROAM_GRANT_REQ_LEN];
         ::memset(zero, 0x00U, sizeof(zero));
-        REQUIRE(RoamingCodec::decodeGrantSource(zero, sizeof(zero), netId, sysId));
+        REQUIRE(Roaming::decodeGrantSource(zero, sizeof(zero), netId, sysId));
         CHECK(netId == 0U);
         CHECK(sysId == 0U);
-        CHECK_FALSE(RoamingCodec::decodeGrantSource(zero, ROAM_GRANT_REQ_LEN - 1U, netId, sysId));
+        CHECK_FALSE(Roaming::decodeGrantSource(zero, ROAM_GRANT_REQ_LEN - 1U, netId, sysId));
 
         zero[7U] = 0x10U;
-        CHECK_FALSE(RoamingCodec::decodeGrantSource(zero, sizeof(zero), netId, sysId));
+        CHECK_FALSE(Roaming::decodeGrantSource(zero, sizeof(zero), netId, sysId));
 
         uint8_t untouched[ROAM_GRANT_REQ_LEN];
         ::memset(untouched, 0x00U, sizeof(untouched));
-        CHECK_FALSE(RoamingCodec::encodeGrantSource(untouched, 0x100000U, 0x911U));
+        CHECK_FALSE(Roaming::encodeGrantSource(untouched, 0x100000U, 0x911U));
         CHECK(untouched[4U] == 0x00U);
     }
 }
