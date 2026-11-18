@@ -389,6 +389,24 @@ public:
      */
     static void p25ClockU2U(p25::Control& control, uint32_t ms);
     /**
+     * @brief Sets whether P25 SNDCP support is enabled.
+     * @param control P25 control instance.
+     * @param enabled True to enable SNDCP support; otherwise, false.
+     */
+    static void p25SetSNDCPSupport(p25::Control& control, bool enabled);
+    /**
+     * @brief Tests whether the P25 voice channel holds an SNDCP data permit.
+     * @param control P25 control instance.
+     * @returns bool True if a data permit is held; otherwise, false.
+     */
+    static bool p25PermittedData(const p25::Control& control);
+    /**
+     * @brief Advances the P25 data channel keep-alive and permit hold timers.
+     * @param control P25 control instance.
+     * @param ms Elapsed milliseconds.
+     */
+    static void p25ClockDataChannelKeepAlive(p25::Control& control, uint32_t ms);
+    /**
      * @brief Stores an MFID transaction for P25 control-signaling tests.
      */
     static void p25StoreMFId(p25::Control& control, uint32_t srcId, uint32_t dstId,
