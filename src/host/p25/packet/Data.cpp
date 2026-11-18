@@ -171,6 +171,24 @@ bool Data::process(uint8_t* data, uint32_t len)
                         LogInfoEx(LOG_RF, P25_PDU_STR ", ISP, response, OSP ACK RETRY, llId = %u",
                             m_rfAssembler->dataHeader.getLLId());
 
+                        // dump the selective retry block so the blocks the SU asked for can be inspected
+                        uint8_t retryRaw[P25_PDU_FEC_LENGTH_BYTES];
+                        if (m_rfAssembler->dataHeader.getBlocksToFollow() > 0U &&
+                            getResponseDataBlock(m_rfPDU, m_rfPDUBits, retryRaw)) {
+                            data::DataBlock retryBlock = data::DataBlock();
+                            retryBlock.setFormat(m_rfAssembler->dataHeader);
+                            if (retryBlock.decode(retryRaw, m_rfAssembler->dataHeader)) {
+                                uint8_t retryFlags[P25_PDU_CONFIRMED_DATA_LENGTH_BYTES];
+                                ::memset(retryFlags, 0x00U, P25_PDU_CONFIRMED_DATA_LENGTH_BYTES);
+                                retryBlock.getData(retryFlags);
+                                Utils::dump(1U, P25_PDU_STR ", ISP, response, OSP ACK RETRY, selective retry block", retryFlags, P25_PDU_UNCONFIRMED_LENGTH_BYTES);
+                            }
+                            else {
+                                LogWarning(LOG_RF, P25_PDU_STR ", ISP, response, OSP ACK RETRY, unable to decode selective retry block, llId = %u",
+                                    m_rfAssembler->dataHeader.getLLId());
+                            }
+                        }
+
                         // really this is supposed to check the bit field in the included response 
                         // and only return those bits -- but we're responding with the entire previous packet...
                         uint32_t retryLlId = m_rfAssembler->dataHeader.getLLId();
