@@ -6,6 +6,7 @@
  *
  *  Copyright (C) 2016,2018 Jonathan Naylor, G4KLX
  *  Copyright (C) 2023-2024 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2026 David Andrzejewski
  *
  */
 #include "Defines.h"
@@ -16,6 +17,8 @@
 using namespace edac;
 
 #include <cassert>
+#include <cstdlib>
+#include <cstring>
 
 // ---------------------------------------------------------------------------
 //  Constants
@@ -43,6 +46,16 @@ const uint8_t ENCODE_TABLE_12[] = {
     13U,  2U,  1U, 14U,
     9U,   6U,  5U, 10U };
 
+// 4FSK dibit pair carried by each constellation point (same mapping as pointsToDibits())
+const int8_t POINT_DIBITS[16U][2U] = {
+    { +1, -1 }, { -1, -1 }, { +3, -3 }, { -3, -3 }, { -3, -1 }, { +3, -1 }, { -1, -3 }, { +1, -3 },
+    { -3, +3 }, { +3, +3 }, { -1, +1 }, { +1, +1 }, { +1, +3 }, { -1, +3 }, { +3, +1 }, { -3, +1 } };
+
+// number of constellation points (trellis steps) in a 3/4 rate block, including the flushing tribit
+const uint32_t TRELLIS_34_STEPS = 49U;
+// number of encoder states (the previous tribit) for the 3/4 rate code
+const uint32_t TRELLIS_34_STATES = 8U;
+
 // ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
@@ -65,30 +78,33 @@ bool Trellis::decode34(const uint8_t* data, uint8_t* payload, bool skipSymbols)
     int8_t dibits[98U];
     deinterleave(data, dibits, skipSymbols);
 
-    uint8_t points[49U];
-    dibitsToPoints(dibits, points);
+    uint32_t metric = 0U;
+    return viterbi34(dibits, payload, &metric, 1U) == 1U;
+}
 
-    // Check the original code
-    uint8_t tribits[49U];
-    uint32_t failPos = checkCode34(points, tribits);
-    if (failPos == 999U) {
-        tribitsToBits(tribits, payload);
-        return true;
-    }
+/* Decodes 3/4 rate Trellis, returning every candidate tied for the best path metric. */
 
-    uint8_t savePoints[49U];
-    for (uint32_t i = 0U; i < 49U; i++)
-        savePoints[i] = points[i];
+uint32_t Trellis::decode34List(const uint8_t* data, uint8_t* payloads, uint32_t maxPaths, bool skipSymbols)
+{
+    assert(data != nullptr);
+    assert(payloads != nullptr);
 
-    bool ret = fixCode34(points, failPos, payload);
-    if (ret)
-        return true;
+    if (maxPaths == 0U || maxPaths > TRELLIS_34_MAX_LIST_PATHS)
+        return 0U;
 
-    if (failPos == 0U)
-        return false;
+    int8_t dibits[98U];
+    deinterleave(data, dibits, skipSymbols);
 
-    // Backtrack one place for a last go
-    return fixCode34(savePoints, failPos - 1U, payload);
+    uint32_t metrics[TRELLIS_34_MAX_LIST_PATHS];
+    uint32_t count = viterbi34(dibits, payloads, metrics, maxPaths);
+
+    // only candidates that are as likely as the best path are useful to the caller; anything worse
+    // would let a CRC accept a less likely codeword over a more likely one
+    uint32_t tied = 0U;
+    while (tied < count && metrics[tied] == metrics[0U])
+        tied++;
+
+    return tied;
 }
 
 /* Encodes 3/4 rate Trellis. */
@@ -448,69 +464,98 @@ void Trellis::dibitsToBits(const uint8_t* dibits, uint8_t* payload) const
     }
 }
 
-/* Helper to fix errors in Trellis coding. */
+/* Helper to run a list Viterbi decode of the 3/4 rate Trellis. */
 
-bool Trellis::fixCode34(uint8_t* points, uint32_t failPos, uint8_t* payload) const
+uint32_t Trellis::viterbi34(const int8_t* dibits, uint8_t* payloads, uint32_t* metrics, uint32_t maxPaths) const
 {
-#if DEBUG_TRELLIS
-    ::LogDebugEx(LOG_HOST, "Trellis::fixCode34()", "failPos = %u, val = %01X", failPos, points[failPos]);
-#endif
-    for (unsigned j = 0U; j < 20U; j++) {
-        uint32_t bestPos = 0U;
-        uint32_t bestVal = 0U;
+    assert(dibits != nullptr);
+    assert(payloads != nullptr);
+    assert(metrics != nullptr);
+    assert(maxPaths >= 1U && maxPaths <= TRELLIS_34_MAX_LIST_PATHS);
 
-        for (uint32_t i = 0U; i < 16U; i++) {
-            points[failPos] = i;
+    /*
+    ** Parallel list Viterbi: every state keeps its maxPaths best survivors. The encoder state is the
+    ** previous tribit, so the input tribit selected at step i is also the state entered at step i. The
+    ** branch metric is the 4FSK level distance between the expected and received dibits (one unit per
+    ** adjacent level), which matches the dominant hard-decision error of a C4FM receiver: a symbol
+    ** sliced one level away from where it was sent.
+    */
+    struct Survivor {
+        uint16_t metric;    // accumulated path metric
+        uint8_t prevState;  // state at the previous step
+        uint8_t prevRank;   // rank of the predecessor survivor within prevState
+    };
 
-            uint8_t tribits[49U];
-            uint32_t pos = checkCode34(points, tribits);
-            if (pos == 999U) {
-#if DEBUG_TRELLIS
-                ::LogDebugEx(LOG_HOST, "Trellis::fixCode34()", "fixed, failPos = %u, pos = %u, val = %01X", failPos, bestPos, bestVal);
-#endif
-                tribitsToBits(tribits, payload);
-                return true;
+    Survivor trace[TRELLIS_34_STEPS][TRELLIS_34_STATES][TRELLIS_34_MAX_LIST_PATHS];
+    uint8_t traceCnt[TRELLIS_34_STEPS][TRELLIS_34_STATES];
+    ::memset(traceCnt, 0x00U, sizeof(traceCnt));
+
+    // the encoder starts in state 0 with a zero metric
+    Survivor current[TRELLIS_34_STATES][TRELLIS_34_MAX_LIST_PATHS];
+    uint8_t currentCnt[TRELLIS_34_STATES];
+    ::memset(currentCnt, 0x00U, sizeof(currentCnt));
+    current[0U][0U] = { 0U, 0U, 0U };
+    currentCnt[0U] = 1U;
+
+    for (uint32_t i = 0U; i < TRELLIS_34_STEPS; i++) {
+        const int8_t rx0 = dibits[i * 2U + 0U];
+        const int8_t rx1 = dibits[i * 2U + 1U];
+
+        for (uint32_t next = 0U; next < TRELLIS_34_STATES; next++) {
+            Survivor* best = trace[i][next];
+            uint32_t bestCnt = 0U;
+
+            // states and ranks are visited in ascending order and ties never displace an earlier entry,
+            // so the candidate ordering is deterministic
+            for (uint32_t state = 0U; state < TRELLIS_34_STATES; state++) {
+                const uint8_t point = ENCODE_TABLE_34[state * 8U + next];
+                const uint32_t branch = (uint32_t)((::abs(POINT_DIBITS[point][0U] - rx0) + ::abs(POINT_DIBITS[point][1U] - rx1)) / 2);
+
+                for (uint32_t rank = 0U; rank < currentCnt[state]; rank++) {
+                    const uint16_t metric = (uint16_t)(current[state][rank].metric + branch);
+                    if (bestCnt == maxPaths && metric >= best[bestCnt - 1U].metric)
+                        continue;
+
+                    // insertion into the sorted survivor list
+                    uint32_t pos = (bestCnt < maxPaths) ? bestCnt++ : bestCnt - 1U;
+                    while (pos > 0U && best[pos - 1U].metric > metric) {
+                        best[pos] = best[pos - 1U];
+                        pos--;
+                    }
+
+                    best[pos] = { metric, (uint8_t)state, (uint8_t)rank };
+                }
             }
 
-            if (pos > bestPos) {
-                bestPos = pos;
-                bestVal = i;
-            }
+            traceCnt[i][next] = (uint8_t)bestCnt;
         }
 
-        points[failPos] = bestVal;
-        failPos = bestPos;
+        for (uint32_t state = 0U; state < TRELLIS_34_STATES; state++) {
+            currentCnt[state] = traceCnt[i][state];
+            for (uint32_t rank = 0U; rank < currentCnt[state]; rank++)
+                current[state][rank] = trace[i][state][rank];
+        }
     }
 
-    return false;
-}
+    // the final (flushing) tribit is always 0, so only paths ending in state 0 are valid
+    const uint32_t count = traceCnt[TRELLIS_34_STEPS - 1U][0U];
+    for (uint32_t path = 0U; path < count; path++) {
+        uint8_t tribits[TRELLIS_34_STEPS];
+        uint8_t state = 0U;
+        uint8_t rank = (uint8_t)path;
 
-/* Helper to detect errors in Trellis coding. */
-
-uint32_t Trellis::checkCode34(const uint8_t* points, uint8_t* tribits) const
-{
-    uint8_t state = 0U;
-
-    for (uint32_t i = 0U; i < 49U; i++) {
-        tribits[i] = 9U;
-
-        for (uint32_t j = 0U; j < 8U; j++) {
-            if (points[i] == ENCODE_TABLE_34[state * 8U + j]) {
-                tribits[i] = j;
-                break;
-            }
+        metrics[path] = trace[TRELLIS_34_STEPS - 1U][0U][path].metric;
+        for (int32_t i = (int32_t)TRELLIS_34_STEPS - 1; i >= 0; i--) {
+            const Survivor& s = trace[i][state][rank];
+            tribits[i] = state;
+            state = s.prevState;
+            rank = s.prevRank;
         }
 
-        if (tribits[i] == 9U)
-            return i;
-
-        state = tribits[i];
+        tribitsToBits(tribits, payloads + path * TRELLIS_34_PAYLOAD_LENGTH_BYTES);
     }
 
-    if (tribits[48U] != 0U)
-        return 48U;
-
-    return 999U;
+    return count;
 }
 
 
