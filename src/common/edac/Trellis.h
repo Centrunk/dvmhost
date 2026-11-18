@@ -6,6 +6,7 @@
  *
  *  Copyright (C) 2016,2018 Jonathan Naylor, G4KLX
  *  Copyright (C) 2023-2024 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2026 David Andrzejewski
  *
  */
 /**
@@ -21,6 +22,22 @@
 
 namespace edac
 {
+    // ---------------------------------------------------------------------------
+    //  Constants
+    // ---------------------------------------------------------------------------
+
+    /**
+     * @addtogroup edac
+     * @{
+     */
+
+    /** @brief Maximum number of candidate paths returned by the 3/4 rate Trellis list decoder. */
+    const uint32_t TRELLIS_34_MAX_LIST_PATHS = 8U;
+    /** @brief Length in bytes of one decoded 3/4 rate Trellis payload (144 bits). */
+    const uint32_t TRELLIS_34_PAYLOAD_LENGTH_BYTES = 18U;
+
+    /** @} */
+
     // ---------------------------------------------------------------------------
     //  Class Declaration
     // ---------------------------------------------------------------------------
@@ -42,12 +59,28 @@ namespace edac
 
         /**
          * @brief Decodes 3/4 rate Trellis.
+         *
+         *  This is a maximum-likelihood (Viterbi) decode over the 4FSK symbol distance; it always produces the
+         *  closest codeword, so integrity must be established by the caller's CRC.
          * @param[in] data Trellis symbol bytes.
-         * @param[out] payload Output bytes.
+         * @param[out] payload Output bytes (18 bytes).
          * @param skipSymbols Flag indicating symbols should be skipped (this is used for DMR).
          * @returns bool True, if Trellis decoded, otherwise false.
          */
         bool decode34(const uint8_t* data, uint8_t* payload, bool skipSymbols = false);
+        /**
+         * @brief Decodes 3/4 rate Trellis, returning every candidate tied for the best path metric.
+         *
+         *  Hard-decision symbol errors can leave a received block equidistant from several codewords; the
+         *  caller resolves the tie with its own CRC. Candidates are ordered as a standard Viterbi would rank
+         *  them, so the first candidate is identical to the decode34() result.
+         * @param[in] data Trellis symbol bytes.
+         * @param[out] payloads Output buffer of maxPaths * TRELLIS_34_PAYLOAD_LENGTH_BYTES bytes.
+         * @param maxPaths Maximum number of candidates to return (1 to TRELLIS_34_MAX_LIST_PATHS).
+         * @param skipSymbols Flag indicating symbols should be skipped (this is used for DMR).
+         * @returns uint32_t Number of candidates written, all sharing the best path metric (0 on invalid arguments).
+         */
+        uint32_t decode34List(const uint8_t* data, uint8_t* payloads, uint32_t maxPaths, bool skipSymbols = false);
         /**
          * @brief Encodes 3/4 rate Trellis.
          * @param[in] payload Input bytes.
@@ -123,20 +156,14 @@ namespace edac
         void dibitsToBits(const uint8_t* dibits, uint8_t* payload) const;
 
         /**
-         * @brief Helper to fix errors in Trellis coding.
-         * @param points Trellis constellation points.
-         * @param failPos Failure position.
-         * @param payload Byte payload.
-         * @returns bool True, if error corrected, otherwise false.
+         * @brief Helper to run a list Viterbi decode of the 3/4 rate Trellis.
+         * @param[in] dibits Deinterleaved received dibits (98 entries).
+         * @param[out] payloads Output buffer of maxPaths * TRELLIS_34_PAYLOAD_LENGTH_BYTES bytes, best path first.
+         * @param[out] metrics Path metric of each returned candidate (maxPaths entries).
+         * @param maxPaths Number of paths to keep per state (1 to TRELLIS_34_MAX_LIST_PATHS).
+         * @returns uint32_t Number of candidates written.
          */
-        bool fixCode34(uint8_t* points, uint32_t failPos, uint8_t* payload) const;
-        /**
-         * @brief Helper to detect errors in Trellis coding.
-         * @param points Trellis constellation points.
-         * @param tribits Tribits.
-         * @returns uint32_t Position.
-         */
-        uint32_t checkCode34(const uint8_t* points, uint8_t* tribits) const;
+        uint32_t viterbi34(const int8_t* dibits, uint8_t* payloads, uint32_t* metrics, uint32_t maxPaths) const;
 
         /**
          * @brief Helper to fix errors in Trellis coding.

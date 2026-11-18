@@ -5,6 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2018-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2026 David Andrzejewski
  *
  */
 /**
@@ -116,6 +117,14 @@ namespace p25
              * @brief Internal helper to copy the class.
              */
             void copy(const DataBlock& data);
+            /**
+             * @brief Internal helper to check the CRC-9 of a decoded confirmed data block.
+             * @param[in] buffer Decoded confirmed data block (P25_PDU_CONFIRMED_LENGTH_BYTES bytes).
+             * @param[out] crc CRC-9 carried in the block.
+             * @param[out] calculated CRC-9 computed over the block.
+             * @returns bool True, if the carried CRC-9 matches the computed CRC-9, otherwise false.
+             */
+            static bool checkConfirmedCRC9(const uint8_t* buffer, uint16_t& crc, uint16_t& calculated);
         };
     } // namespace data
 } // namespace p25

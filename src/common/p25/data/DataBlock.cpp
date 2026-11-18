@@ -5,6 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2018-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2026 David Andrzejewski
  *
  */
 #include "Defines.h"
@@ -75,48 +76,59 @@ bool DataBlock::decode(const uint8_t* data, const DataHeader& header, bool noTre
     if (m_fmt == PDUFormatType::CONFIRMED) {
         // decode 3/4 rate Trellis
         try {
+            uint8_t candidates[edac::TRELLIS_34_MAX_LIST_PATHS * P25_PDU_CONFIRMED_LENGTH_BYTES];
+            ::memset(candidates, 0x00U, sizeof(candidates));
+
+            uint32_t candidateCnt = 1U;
             if (!noTrellis) {
-                bool valid = m_trellis.decode34(data, buffer);
-                if (!valid) {
+                // hard-decision symbol errors can leave a block equidistant from several codewords; collect
+                // every equally likely candidate so the CRC-9 can select the transmitted one
+                candidateCnt = m_trellis.decode34List(data, candidates, edac::TRELLIS_34_MAX_LIST_PATHS);
+                if (candidateCnt == 0U) {
                     LogError(LOG_P25, "DataBlock::decode(), failed to decode Trellis 3/4 rate coding");
                     return false;
                 }
             } else {
-                ::memcpy(buffer, data, P25_PDU_CONFIRMED_LENGTH_BYTES);
+                ::memcpy(candidates, data, P25_PDU_CONFIRMED_LENGTH_BYTES);
             }
+
+            uint16_t crc = 0U;
+            uint16_t calculated = 0U;
+            uint32_t selected = 0U;
+            for (uint32_t i = 0U; i < candidateCnt; i++) {
+                uint16_t candidateCRC = 0U;
+                uint16_t candidateCalc = 0U;
+                bool valid = checkConfirmedCRC9(candidates + i * P25_PDU_CONFIRMED_LENGTH_BYTES, candidateCRC, candidateCalc);
+
+                // on failure, report the most likely candidate
+                if (i == 0U || valid) {
+                    selected = i;
+                    crc = candidateCRC;
+                    calculated = candidateCalc;
+                }
+
+                if (valid)
+                    break;
+            }
+
+            ::memcpy(buffer, candidates + selected * P25_PDU_CONFIRMED_LENGTH_BYTES, P25_PDU_CONFIRMED_LENGTH_BYTES);
 
 #if DEBUG_P25_PDU_DATA
             Utils::dump(1U, "P25, DataBlock::decode(), Confirmed PDU Data Block", buffer, P25_PDU_CONFIRMED_LENGTH_BYTES);
 #endif
 
             m_serialNo = (buffer[0] & 0xFEU) >> 1;                                          // Confirmed Data Serial No.
-            uint16_t crc = ((buffer[0] & 0x01U) << 8) + buffer[1];                          // CRC-9 Check Sum
 
             ::memset(m_data, 0x00U, P25_PDU_CONFIRMED_DATA_LENGTH_BYTES);
             ::memcpy(m_data, buffer + 2U, P25_PDU_CONFIRMED_DATA_LENGTH_BYTES);             // Payload Data
 
-            uint8_t crcBuffer[P25_PDU_CONFIRMED_LENGTH_BYTES];
-            ::memset(crcBuffer, 0x00U, P25_PDU_CONFIRMED_LENGTH_BYTES);
-
-            // generate CRC buffer
-            for (uint32_t i = 0U; i < 144U; i++) {
-                bool b = READ_BIT(buffer, i);
-                if (i < 7U) {
-                    WRITE_BIT(crcBuffer, i, b);
-                } else if (i > 15U) {
-                    WRITE_BIT(crcBuffer, i - 9U, b);
-                }
-            }
-
-#if DEBUG_P25_PDU_DATA
-            Utils::dump(2U, "P25, CRC Bit Buffer", crcBuffer, P25_PDU_CONFIRMED_LENGTH_BYTES);
-#endif
-
-            // compute CRC-9 for the packet
-            uint16_t calculated = edac::CRC::createCRC9(crcBuffer, 135U);
             if ((crc ^ calculated) != 0) {
                 LogError(LOG_P25, "PDU, fmt = $%02X, invalid crc = $%04X != $%04X (computed)", m_fmt, crc, calculated);
                 return false;
+            }
+
+            if (selected != 0U) {
+                LogDebug(LOG_P25, "PDU, fmt = $%02X, Trellis 3/4 rate tie resolved by CRC-9, candidate %u of %u", m_fmt, selected + 1U, candidateCnt);
             }
 
 #if DEBUG_P25_PDU_DATA
@@ -302,4 +314,34 @@ void DataBlock::copy(const DataBlock& data)
     if (m_data != nullptr && data.m_data != nullptr) {
         ::memcpy(m_data, data.m_data, P25_PDU_CONFIRMED_DATA_LENGTH_BYTES);
     }
+}
+
+/* Internal helper to check the CRC-9 of a decoded confirmed data block. */
+
+bool DataBlock::checkConfirmedCRC9(const uint8_t* buffer, uint16_t& crc, uint16_t& calculated)
+{
+    assert(buffer != nullptr);
+
+    crc = ((buffer[0] & 0x01U) << 8) + buffer[1];                                           // CRC-9 Check Sum
+
+    uint8_t crcBuffer[P25_PDU_CONFIRMED_LENGTH_BYTES];
+    ::memset(crcBuffer, 0x00U, P25_PDU_CONFIRMED_LENGTH_BYTES);
+
+    // generate CRC buffer (the serial number and payload, skipping the CRC-9 field itself)
+    for (uint32_t i = 0U; i < 144U; i++) {
+        bool b = READ_BIT(buffer, i);
+        if (i < 7U) {
+            WRITE_BIT(crcBuffer, i, b);
+        } else if (i > 15U) {
+            WRITE_BIT(crcBuffer, i - 9U, b);
+        }
+    }
+
+#if DEBUG_P25_PDU_DATA
+    Utils::dump(2U, "P25, CRC Bit Buffer", crcBuffer, P25_PDU_CONFIRMED_LENGTH_BYTES);
+#endif
+
+    // compute CRC-9 for the packet
+    calculated = edac::CRC::createCRC9(crcBuffer, 135U);
+    return (crc ^ calculated) == 0U;
 }
