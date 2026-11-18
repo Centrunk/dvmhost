@@ -407,6 +407,12 @@ public:
      */
     static void p25ClockDataChannelKeepAlive(p25::Control& control, uint32_t ms);
     /**
+     * @brief Sets the remaining P25 native-modem PDU pacing guard.
+     * @param control P25 control instance.
+     * @param ms Remaining pacing guard in milliseconds (0 clears it).
+     */
+    static void p25SetRFPDUPacing(p25::Control& control, uint32_t ms);
+    /**
      * @brief Stores an MFID transaction for P25 control-signaling tests.
      */
     static void p25StoreMFId(p25::Control& control, uint32_t srcId, uint32_t dstId,
