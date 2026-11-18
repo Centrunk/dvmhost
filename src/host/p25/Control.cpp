@@ -810,6 +810,20 @@ uint32_t Control::peekFrameLength()
     return len;
 }
 
+/* Helper to determine whether the next queued frame fits in the modem's reported P25 space. */
+
+bool Control::peekFrameFitsModem(uint32_t& length)
+{
+    // the full length must be compared; PDU frames can exceed 255 bytes, and a
+    // truncated length lets an oversized frame be dequeued and then dropped by
+    // the modem write
+    length = peekFrameLength();
+    if (length == 0U)
+        return false;
+
+    return m_modem->hasP25Space(length);
+}
+
 /* Helper to determine whether or not the internal frame queue is full. */
 
 bool Control::isQueueFull()

@@ -244,7 +244,8 @@ void* Host::threadP25Writer(void* arg)
                     // if there is read frames from the P25 controller and write it
                     // to the modem
                     if (host->m_p25 != nullptr) {
-                        uint32_t nextLen = host->m_p25->peekFrameLength();
+                        uint32_t nextLen = 0U;
+                        bool fits = host->m_p25->peekFrameFitsModem(nextLen);
                         if (host->m_p25CtrlChannel) {
                             if (host->m_p25DedicatedTxTestTimer.hasExpired() && !host->m_p25DedicatedTxTestTimer.isPaused()) {
                                 host->m_p25DedicatedTxTestTimer.pause();
@@ -255,7 +256,7 @@ void* Host::threadP25Writer(void* arg)
                         }
 
                         if (nextLen > 0U) {
-                            bool ret = host->m_modem->hasP25Space(nextLen);
+                            bool ret = fits;
 
                             // are we connected to a V.24 device? if so, always force
                             // allow the write, V.24 modem status space can lag at call start; do not block

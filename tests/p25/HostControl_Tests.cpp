@@ -2135,27 +2135,42 @@ TEST_CASE("P25 SNDCP data channel keep-alive does not fill the native-modem PDU 
     REQUIRE(tduCount == 1U);
 }
 
-TEST_CASE("P25 queued frames longer than 255 bytes report their full length", "[p25][host][control][queue][pdu]")
+TEST_CASE("P25 frames longer than 255 bytes wait for the full modem space", "[p25][host][control][queue][pdu]")
 {
     P25HostHarness harness(false, false, 0U, 1U, false, false, true);
 
     uint32_t tduCount = 0U;
     drainRFFrames(*harness.m_control, tduCount);
 
-    // a 14-block confirmed PDU is 393 bytes on the air, 395 bytes once tagged; the
-    // host modem writer gates on this length, so it must not be truncated to 8 bits
-    const uint32_t length = 395U;
-    std::vector<uint8_t> frame(length);
-    for (uint32_t i = 0U; i < length; i++)
+    uint32_t length = 1U;
+    HostTestHooks::modemSetP25Space(harness.m_modem, 432U);
+    REQUIRE_FALSE(harness.m_control->peekFrameFitsModem(length));
+    REQUIRE(length == 0U);
+
+    // a 14-block confirmed PDU is 393 bytes on the air, 395 bytes once tagged; truncated
+    // to 8 bits it would read as 139 bytes and pass a 216-byte (one LDU) space report
+    const uint32_t frameLength = 395U;
+    std::vector<uint8_t> frame(frameLength);
+    for (uint32_t i = 0U; i < frameLength; i++)
         frame[i] = (uint8_t)i;
 
-    REQUIRE(HostTestHooks::p25AddFrame(*harness.m_control, frame.data(), length));
-    REQUIRE(harness.m_control->peekFrameLength() == length);
-    REQUIRE((uint8_t)harness.m_control->peekFrameLength() != length);
+    REQUIRE(HostTestHooks::p25AddFrame(*harness.m_control, frame.data(), frameLength));
 
+    HostTestHooks::modemSetP25Space(harness.m_modem, 216U);
+    REQUIRE_FALSE(harness.m_control->peekFrameFitsModem(length));
+    REQUIRE(length == frameLength);
+
+    HostTestHooks::modemSetP25Space(harness.m_modem, frameLength - 1U);
+    REQUIRE_FALSE(harness.m_control->peekFrameFitsModem(length));
+
+    HostTestHooks::modemSetP25Space(harness.m_modem, frameLength);
+    REQUIRE(harness.m_control->peekFrameFitsModem(length));
+    REQUIRE(length == frameLength);
+
+    // the frame stays queued intact until it is written
     std::vector<uint8_t> out(p25::defines::P25_PDU_FRAME_LENGTH_BYTES * 2U, 0U);
-    REQUIRE(harness.m_control->getFrame(out.data()) == length);
-    CHECK(::memcmp(out.data(), frame.data(), length) == 0);
+    REQUIRE(harness.m_control->getFrame(out.data()) == frameLength);
+    CHECK(::memcmp(out.data(), frame.data(), frameLength) == 0);
     CHECK(harness.m_control->peekFrameLength() == 0U);
 }
 

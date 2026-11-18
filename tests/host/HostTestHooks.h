@@ -421,6 +421,12 @@ public:
      */
     static bool p25AddFrame(p25::Control& control, const uint8_t* data, uint32_t length);
     /**
+     * @brief Sets the modem's reported P25 ring buffer space.
+     * @param modem Modem instance.
+     * @param space Reported P25 space in bytes.
+     */
+    static void modemSetP25Space(modem::Modem& modem, uint32_t space);
+    /**
      * @brief Copies the encoded data block that follows a response header out of a received RF PDU.
      * @param[in] rfPDU Received RF PDU bits, starting with the preamble.
      * @param rfPDUBits Number of valid bits held in rfPDU.

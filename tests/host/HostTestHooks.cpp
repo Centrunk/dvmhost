@@ -625,6 +625,13 @@ bool HostTestHooks::p25AddFrame(p25::Control& control, const uint8_t* data, uint
     return control.addFrame(data, length);
 }
 
+/* Sets the modem's reported P25 ring buffer space. */
+
+void HostTestHooks::modemSetP25Space(modem::Modem& modem, uint32_t space)
+{
+    modem.m_p25Space = space;
+}
+
 /* Copies the encoded data block that follows a response header out of a received RF PDU. */
 
 bool HostTestHooks::p25ResponseDataBlock(const uint8_t* rfPDU, uint32_t rfPDUBits, uint8_t* block)

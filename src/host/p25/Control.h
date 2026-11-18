@@ -175,6 +175,12 @@ namespace p25
          */
         uint32_t peekFrameLength();
         /**
+         * @brief Helper to determine whether the next queued frame fits in the modem's reported P25 space.
+         * @param[out] length Full length in bytes of the next queued frame (0 if the queue is empty).
+         * @returns bool True if a frame is queued and the modem has space for all of it; otherwise, false.
+         */
+        bool peekFrameFitsModem(uint32_t& length);
+        /**
          * @brief Helper to determine whether or not the internal frame queue is full.
          * @returns bool True if frame queue is full, otherwise false.
          */
