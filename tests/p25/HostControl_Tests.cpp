@@ -2134,6 +2134,30 @@ TEST_CASE("P25 SNDCP data channel keep-alive does not fill the native-modem PDU 
     REQUIRE(tduCount == 1U);
 }
 
+TEST_CASE("P25 queued frames longer than 255 bytes report their full length", "[p25][host][control][queue][pdu]")
+{
+    P25HostHarness harness(false, false, 0U, 1U, false, false, true);
+
+    uint32_t tduCount = 0U;
+    drainRFFrames(*harness.m_control, tduCount);
+
+    // a 14-block confirmed PDU is 393 bytes on the air, 395 bytes once tagged; the
+    // host modem writer gates on this length, so it must not be truncated to 8 bits
+    const uint32_t length = 395U;
+    std::vector<uint8_t> frame(length);
+    for (uint32_t i = 0U; i < length; i++)
+        frame[i] = (uint8_t)i;
+
+    REQUIRE(HostTestHooks::p25AddFrame(*harness.m_control, frame.data(), length));
+    REQUIRE(harness.m_control->peekFrameLength() == length);
+    REQUIRE((uint8_t)harness.m_control->peekFrameLength() != length);
+
+    std::vector<uint8_t> out(p25::defines::P25_PDU_FRAME_LENGTH_BYTES * 2U, 0U);
+    REQUIRE(harness.m_control->getFrame(out.data()) == length);
+    CHECK(::memcmp(out.data(), frame.data(), length) == 0);
+    CHECK(harness.m_control->peekFrameLength() == 0U);
+}
+
 TEST_CASE("P25 SNDCP data channel keep-alive stops when the control channel releases the grant", "[p25][host][control][sndcp][data-channel]")
 {
     P25HostHarness harness(false, false, 0U, 1U, false, false, true);

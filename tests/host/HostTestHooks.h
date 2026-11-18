@@ -413,6 +413,14 @@ public:
      */
     static void p25SetRFPDUPacing(p25::Control& control, uint32_t ms);
     /**
+     * @brief Queues a tagged P25 frame for transmission to the modem.
+     * @param control P25 control instance.
+     * @param[in] data Tagged frame data (2 tag bytes followed by the air-interface frame).
+     * @param length Length of the tagged frame in bytes.
+     * @returns bool True if the frame was queued; otherwise, false.
+     */
+    static bool p25AddFrame(p25::Control& control, const uint8_t* data, uint32_t length);
+    /**
      * @brief Stores an MFID transaction for P25 control-signaling tests.
      */
     static void p25StoreMFId(p25::Control& control, uint32_t srcId, uint32_t dstId,

@@ -244,7 +244,7 @@ void* Host::threadP25Writer(void* arg)
                     // if there is read frames from the P25 controller and write it
                     // to the modem
                     if (host->m_p25 != nullptr) {
-                        uint8_t nextLen = host->m_p25->peekFrameLength();
+                        uint32_t nextLen = host->m_p25->peekFrameLength();
                         if (host->m_p25CtrlChannel) {
                             if (host->m_p25DedicatedTxTestTimer.hasExpired() && !host->m_p25DedicatedTxTestTimer.isPaused()) {
                                 host->m_p25DedicatedTxTestTimer.pause();

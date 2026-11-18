@@ -618,6 +618,13 @@ void HostTestHooks::p25SetRFPDUPacing(p25::Control& control, uint32_t ms)
     control.m_data->m_pduPacingRemainingMs = ms;
 }
 
+/* Queues a tagged P25 frame for transmission to the modem. */
+
+bool HostTestHooks::p25AddFrame(p25::Control& control, const uint8_t* data, uint32_t length)
+{
+    return control.addFrame(data, length);
+}
+
 /* Stores an MFID transaction for a control-signaling test. */
 
 void HostTestHooks::p25StoreMFId(p25::Control& control, uint32_t srcId, uint32_t dstId,
