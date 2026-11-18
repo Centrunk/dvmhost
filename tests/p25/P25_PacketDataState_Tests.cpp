@@ -10,6 +10,7 @@
 #include "host/Defines.h"
 #include "common/p25/P25Defines.h"
 #include "common/p25/data/ConventionalRegistration.h"
+#include "common/p25/data/DataHeader.h"
 #include "common/p25/data/IPv4Packet.h"
 #include "network/callhandler/packetdata/p25/PacketDataState.h"
 #include "network/callhandler/packetdata/DataRouting.h"
@@ -172,6 +173,37 @@ TEST_CASE("P25 LLC state is isolated by LLID", "[p25][packet-data][llc]")
     CHECK(links.isReady(2002U));
     links.erase(1001U);
     CHECK_FALSE(links.hasState(1001U));
+}
+
+TEST_CASE("P25 LLC response packets do not consume the send sequence", "[p25][packet-data][llc]")
+{
+    DataLinkManager links;
+
+    // a response sent before any data packet must not initialize V(S) or take the SYN flag
+    DataHeader firstRsp;
+    firstRsp.setFormat(PDUFormatType::RSP);
+    CHECK_FALSE(links.assignSendSequence(251309U, firstRsp));
+    CHECK_FALSE(firstRsp.getSynchronize());
+    CHECK(firstRsp.getNs() == 0U);
+
+    DataHeader first;
+    first.setFormat(PDUFormatType::CONFIRMED);
+    REQUIRE(links.assignSendSequence(251309U, first));
+    CHECK(first.getSynchronize());
+    CHECK(first.getNs() == 0U);
+
+    // data packets interleaved with responses must step N(S) by one (TIA-102.BAED 3.2.5)
+    for (uint8_t expectedNs = 1U; expectedNs < 10U; expectedNs++) {
+        DataHeader rsp;
+        rsp.setFormat(PDUFormatType::RSP);
+        CHECK_FALSE(links.assignSendSequence(251309U, rsp));
+
+        DataHeader data;
+        data.setFormat(PDUFormatType::CONFIRMED);
+        REQUIRE(links.assignSendSequence(251309U, data));
+        CHECK_FALSE(data.getSynchronize());
+        CHECK(data.getNs() == uint8_t(expectedNs & 0x07U));
+    }
 }
 
 TEST_CASE("P25 LLC receive sequence wraps and suppresses duplicates", "[p25][packet-data][llc]")

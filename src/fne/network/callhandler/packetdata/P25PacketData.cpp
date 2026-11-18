@@ -1402,11 +1402,7 @@ bool P25PacketData::dispatchUserFrameToFNE(DataHeader& dataHeader, bool extended
     // update V(S) only after a usable RF route has been selected; a retransmission
     // keeps the N(S) already in its header, so the SU can discard a duplicate
     if (!retransmit) {
-        bool synchronize = false;
-        uint8_t sendSequence = m_dataLinkManager.nextSendSequence(srcId, synchronize);
-        if (synchronize)
-            dataHeader.setSynchronize(true);
-        dataHeader.setNs(sendSequence);
+        m_dataLinkManager.assignSendSequence(srcId, dataHeader);
     }
 
     // dispatch the user frame to each resolved RF route

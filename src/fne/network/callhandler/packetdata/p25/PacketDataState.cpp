@@ -8,6 +8,8 @@
  *
  */
 #include "network/callhandler/packetdata/p25/PacketDataState.h"
+#include "common/p25/P25Defines.h"
+#include "common/p25/data/DataHeader.h"
 
 using namespace network::callhandler::packetdata::p25data;
 
@@ -82,6 +84,24 @@ uint8_t DataLinkManager::nextSendSequence(uint32_t llId, bool& synchronize)
     state.sendSequence = (state.sendSequence + 1U) & 0x07U;
     synchronize = false;
     return state.sendSequence;
+}
+
+/* Assigns N(S), and the synchronize flag when V(S) is first initialized, to an outbound PDU header. */
+
+bool DataLinkManager::assignSendSequence(uint32_t llId, ::p25::data::DataHeader& header)
+{
+    // V(S) only advances for a new data packet (TIA-102.BAED 3.2.5); a response packet
+    // carries N(R) in its status, so it must neither consume a send sequence number nor
+    // take the resynchronization that belongs to the first data packet
+    if (header.getFormat() == ::p25::defines::PDUFormatType::RSP)
+        return false;
+
+    bool synchronize = false;
+    uint8_t sendSequence = nextSendSequence(llId, synchronize);
+    if (synchronize)
+        header.setSynchronize(true);
+    header.setNs(sendSequence);
+    return true;
 }
 
 /* Accepts a received sequence number for the specified logical link. */

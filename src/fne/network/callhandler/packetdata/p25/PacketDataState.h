@@ -21,6 +21,12 @@
 #include <cstdint>
 #include <unordered_map>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+namespace p25 { namespace data { class DVM_COMMON_API DataHeader; } }
+
 namespace network
 {
     namespace callhandler
@@ -245,6 +251,14 @@ namespace network
                      * @return The next send sequence number.
                      */
                     uint8_t nextSendSequence(uint32_t llId, bool& synchronize);
+                    /**
+                     * @brief Assigns N(S), and the synchronize flag when V(S) is first initialized, to an
+                     *  outbound PDU header for the specified logical link.
+                     * @param llId The logical link ID.
+                     * @param[in,out] header Outbound PDU header; a response packet is left unchanged.
+                     * @return bool True if a send sequence number was assigned; otherwise, false.
+                     */
+                    bool assignSendSequence(uint32_t llId, ::p25::data::DataHeader& header);
                     /**
                      * @brief Accepts a received sequence number for the specified logical link.
                      * @param llId The logical link ID.
