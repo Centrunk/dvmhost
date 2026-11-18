@@ -204,6 +204,33 @@ bool P25PacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
     LogInfoEx(LOG_NET, P25_PDU_STR ", received block %u, peerId = %u, len = %u",
         currentBlock, peerId, blockLength);
 
+    // a header block always opens a new PDU transaction; an incomplete transaction still held
+    // for this peer (e.g. a response header whose announced data block never arrived) can never
+    // complete, and keeping it would reject every later header from the peer as a conflicting
+    // duplicate, so discard it and start over with this header
+    if (currentBlock == 0U && !status->receivedBlocks.empty()) {
+        auto heldHeader = status->receivedBlocks.find(0U);
+        if (heldHeader == status->receivedBlocks.end() ||
+            ::memcmp(heldHeader->second, data + 24U, blockLength) != 0) {
+            LogWarning(LOG_P25, P25_PDU_STR ", discarding incomplete PDU, peer = %u, blocks = %u of %u",
+                peerId, status->dataBlockCnt, status->totalBlocks);
+
+            m_status.erase(peerId);
+            delete status;
+
+            m_status.lock(true);
+            status = new RxStatus();
+            status->callStartTime = pktTime;
+            status->lastPacket = pktTime;
+            status->streamId = streamId;
+            status->peerId = peerId;
+            status->totalBlocks = totalBlocks;
+            m_status.unlock();
+
+            m_status.insert(peerId, status);
+        }
+    }
+
     // store the received block
     auto existing = status->receivedBlocks.find(currentBlock);
     if (existing != status->receivedBlocks.end()) {
